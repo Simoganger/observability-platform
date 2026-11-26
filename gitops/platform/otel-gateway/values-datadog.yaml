@@ -1,0 +1,40 @@
+# Dual-ship to Datadog in addition to the CNCF backends.
+# Enable: add "values-datadog.yaml" to components.otel-gateway.extraValueFiles
+# in gitops/root/values-<env>.yaml and create the secret:
+#   kubectl -n observability create secret generic datadog-secret --from-literal=api-key=<KEY>
+extraEnvs:
+  - name: DD_API_KEY
+    valueFrom:
+      secretKeyRef: { name: datadog-secret, key: api-key }
+config:
+  connectors:
+    datadog/connector: {}          # computes Datadog APM stats from ALL spans (pre-sampling)
+  exporters:
+    datadog:
+      api:
+        key: ${env:DD_API_KEY}
+        site: datadoghq.eu        # or datadoghq.com
+      traces:
+        compute_stats_by_span_kind: true
+  service:
+    pipelines:
+      traces:
+        receivers: [otlp]
+        processors: [memory_limiter, filter/noise]
+        exporters: [spanmetrics, servicegraph, forward/sampling, datadog/connector]
+      traces/sampled:
+        receivers: [forward/sampling]
+        processors: [tail_sampling, batch]
+        exporters: [otlp/tempo, datadog]
+      metrics:
+        receivers: [otlp, spanmetrics, servicegraph]
+        processors: [memory_limiter, batch]
+        exporters: [otlphttp/prometheus, datadog]
+      metrics/datadog-apm-stats:          # Datadog-only format, never sent to Prometheus
+        receivers: [datadog/connector]
+        processors: [batch]
+        exporters: [datadog]
+      logs:
+        receivers: [otlp]
+        processors: [memory_limiter, batch]
+        exporters: [otlphttp/loki, datadog]

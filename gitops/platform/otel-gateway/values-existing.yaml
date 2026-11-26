@@ -1,0 +1,5 @@
+replicaCount: 2
+config:
+  exporters:
+    otlp/tempo:
+      endpoint: tempo-distributor.observability.svc:4317

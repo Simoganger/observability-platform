@@ -1,0 +1,64 @@
+# Full end-to-end: kind cluster → Terraform bootstrap → Argo CD syncs THIS commit
+# → wait until every Application is Healthy → assert telemetry flows.
+# Manual (≈15 min). Requires the repo to be public, or a GITOPS_REPO_TOKEN secret.
+name: E2E on kind
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_wrapper: false }
+      - uses: helm/kind-action@v1
+        with: { install_only: true }
+      - name: Build demo image locally (no registry needed)
+        run: |
+          K=gitops/apps/demo-shop/base/kustomization.yaml
+          IMAGE="$(awk '/- name: .*demo-shop/{print $3}' $K):$(awk '/newTag:/{print $2}' $K)"
+          docker build -t "$IMAGE" apps/demo-shop
+          echo "DEMO_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+      - name: Terraform apply (kind + Argo CD + root app)
+        working-directory: terraform/envs/kind
+        env:
+          TF_VAR_gitops_repo_url: ${{ github.server_url }}/${{ github.repository }}.git
+          TF_VAR_gitops_revision: ${{ github.sha }}
+          TF_VAR_gitops_repo_token: ${{ secrets.GITOPS_REPO_TOKEN }}
+        run: |
+          terraform init -input=false
+          terraform apply -auto-approve -input=false
+      - name: Load demo image into kind
+        run: kind load docker-image "$DEMO_IMAGE" --name observability
+      - name: Wait for all Applications to be Synced & Healthy
+        run: |
+          for i in $(seq 1 90); do
+            kubectl -n argocd get applications -o custom-columns=NAME:.metadata.name,SYNC:.status.sync.status,HEALTH:.status.health.status
+            bad=$(kubectl -n argocd get applications -o json | jq '[.items[] | select(.status.health.status!="Healthy" or .status.sync.status!="Synced")] | length')
+            total=$(kubectl -n argocd get applications --no-headers | wc -l)
+            [ "$total" -gt 5 ] && [ "$bad" -eq 0 ] && exit 0
+            sleep 20
+          done
+          exit 1
+      - name: Assert metrics, logs & traces are flowing
+        run: |
+          sleep 120
+          kubectl -n observability port-forward svc/kps-prometheus 9090 & sleep 3
+          kubectl -n observability port-forward svc/loki-gateway 3100:80 & sleep 3
+          kubectl -n observability port-forward svc/tempo 3200 & sleep 3
+          curl -sf 'localhost:9090/api/v1/query?query=sum(rate(traces_span_metrics_calls_total[5m]))' | jq -e '.data.result | length > 0'
+          curl -sfG 'localhost:3100/loki/api/v1/query_range' --data-urlencode 'query={k8s_namespace_name="demo"}' | jq -e '.data.result | length > 0'
+          curl -sfG 'localhost:3100/loki/api/v1/query_range' --data-urlencode 'query={service_name="k8s-events"}' | jq -e '.data.result | length > 0'
+          curl -sf 'localhost:3200/api/search?limit=5' | jq -e '.traces | length > 0'
+      - name: Debug dump
+        if: failure()
+        run: |
+          kubectl get pods -A
+          kubectl -n argocd get applications -o yaml | grep -A10 "conditions:" || true
+          kubectl get events -A --sort-by=.lastTimestamp | tail -50

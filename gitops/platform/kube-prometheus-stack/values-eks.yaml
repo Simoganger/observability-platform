@@ -1,0 +1,61 @@
+# EKS: managed control plane → etcd/scheduler/controller-manager are not scrapeable.
+# HA Prometheus pair + 3-node Alertmanager mesh, gp3 volumes, spread across AZs.
+kubeEtcd: { enabled: false }
+kubeControllerManager: { enabled: false }
+kubeScheduler: { enabled: false }
+
+prometheus:
+  prometheusSpec:
+    replicas: 2
+    retention: 15d
+    externalLabels:
+      cluster: eks-observability
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 100Gi
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: prometheus
+    # Long-term storage: remote-write to Amazon Managed Prometheus / Mimir / Thanos Receive.
+    # remoteWrite:
+    #   - url: https://aps-workspaces.<region>.amazonaws.com/workspaces/<id>/api/v1/remote_write
+    #     sigv4: { region: <region> }
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+alertmanager:
+  alertmanagerSpec:
+    replicas: 3
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 5Gi
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+
+grafana:
+  replicas: 2
+  podDisruptionBudget:
+    minAvailable: 1
+  # For >1 replica use an external database (RDS PostgreSQL) instead of SQLite:
+  # grafana.ini:
+  #   database: { type: postgres, host: ..., name: grafana, user: grafana }
+  # envFromSecret: grafana-db
+  grafana.ini:
+    server:
+      root_url: https://grafana.example.com

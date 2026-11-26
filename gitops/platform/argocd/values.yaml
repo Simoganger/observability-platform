@@ -1,0 +1,81 @@
+# Argo CD — installed once by Terraform, then self-managed by the root app.
+# Keep in sync with terraform/modules/argocd-bootstrap (the bootstrap uses this file).
+global:
+  domain: argocd.local
+
+configs:
+  params:
+    server.insecure: true          # TLS is terminated at your ingress / gateway
+    application.namespaces: argocd
+  cm:
+    # Let parent apps wait for child Application health → sync waves work across apps.
+    resource.customizations.health.argoproj.io_Application: |
+      hs = {}
+      hs.status = "Progressing"
+      hs.message = ""
+      if obj.status ~= nil and obj.status.health ~= nil then
+        hs.status = obj.status.health.status
+        if obj.status.health.message ~= nil then
+          hs.message = obj.status.health.message
+        end
+      end
+      return hs
+    # Track resources by annotation: avoids label clashes with Helm-managed labels.
+    application.resourceTrackingMethod: annotation
+    # Don't let noisy status fields flap apps out of sync.
+    resource.exclusions: |
+      - apiGroups: ["cilium.io"]
+        kinds: ["CiliumIdentity"]
+        clusters: ["*"]
+  rbac:
+    policy.default: role:readonly
+    policy.csv: |
+      g, sre-team, role:admin
+      g, stakeholders, role:readonly
+
+controller:
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 1Gi }
+
+server:
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 512Mi }
+
+repoServer:
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 1Gi }
+
+applicationSet:
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+
+redis:
+  metrics:
+    enabled: false
+
+dex:
+  enabled: false
+
+notifications:
+  enabled: true
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true

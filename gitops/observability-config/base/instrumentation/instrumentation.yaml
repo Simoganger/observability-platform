@@ -1,0 +1,44 @@
+# Zero-code auto-instrumentation for ANY workload in the cluster.
+# Opt a Deployment in by adding ONE pod annotation, e.g.
+#   instrumentation.opentelemetry.io/inject-python: "observability/default"
+# SDKs export OTLP/HTTP to the node-local otel-agent (hostPort 4318), which
+# enriches with k8s metadata and forwards to the gateway.
+apiVersion: opentelemetry.io/v1alpha1
+kind: Instrumentation
+metadata:
+  name: default
+spec:
+  env:
+    - name: OTEL_NODE_IP
+      valueFrom:
+        fieldRef:
+          fieldPath: status.hostIP
+    - name: OTEL_EXPORTER_OTLP_PROTOCOL
+      value: http/protobuf
+    # Logs are shipped from stdout by the agent (filelog) — avoid double ingestion.
+    - name: OTEL_LOGS_EXPORTER
+      value: none
+    - name: OTEL_METRIC_EXPORT_INTERVAL
+      value: "30000"
+  exporter:
+    endpoint: http://$(OTEL_NODE_IP):4318
+  propagators:
+    - tracecontext
+    - baggage
+  # Keep 100% at the source; the gateway does tail-based sampling.
+  sampler:
+    type: parentbased_always_on
+  resource:
+    addK8sUIDAttributes: true
+  python:
+    env:
+      - name: OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED
+        value: "false"
+      - name: OTEL_PYTHON_EXCLUDED_URLS
+        value: "healthz,readyz,metrics"
+  java:
+    env:
+      - name: OTEL_INSTRUMENTATION_MICROMETER_ENABLED
+        value: "true"
+  nodejs: {}
+  dotnet: {}

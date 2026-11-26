@@ -1,0 +1,7 @@
+config:
+  processors:
+    resource/events:
+      attributes:
+        - { key: service.name, value: k8s-events, action: upsert }
+        - { key: k8s.cluster.name, value: CHANGE_ME, action: upsert }
+        - { key: deployment.environment.name, value: CHANGE_ME, action: upsert }

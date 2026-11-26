@@ -1,0 +1,175 @@
+# =============================================================================
+# OpenTelemetry Collector — AGENT (DaemonSet, one per node)
+#   • receives OTLP from pods on the same node (hostPort 4317/4318)
+#   • tails container logs from /var/log/pods (filelog)
+#   • enriches everything with k8s metadata (k8sattributes)
+#   • traces → load-balanced by trace ID to gateway pods (tail-sampling safe)
+#   • logs/metrics → gateway service
+# =============================================================================
+fullnameOverride: otel-agent
+mode: daemonset
+
+image:
+  repository: otel/opentelemetry-collector-contrib
+
+resources:
+  requests: { cpu: 50m, memory: 128Mi }
+  limits: { memory: 512Mi }
+
+ports:
+  otlp: { enabled: true, hostPort: 4317 }
+  otlp-http: { enabled: true, hostPort: 4318 }
+  jaeger-compact: { enabled: false }
+  jaeger-thrift: { enabled: false }
+  jaeger-grpc: { enabled: false }
+  zipkin: { enabled: false }
+  metrics: { enabled: true }
+
+# Expose a Service with internalTrafficPolicy=Local so pods that can't use the
+# hostIP can still reach their node-local agent.
+service:
+  enabled: true
+
+podMonitor:
+  enabled: true
+  metricsEndpoints:
+    - port: metrics
+
+tolerations:
+  - operator: Exists     # run on every node, incl. tainted / control-plane
+
+presets:
+  logsCollection:
+    enabled: true
+    includeCollectorLogs: false
+    storeCheckpoints: true       # survive restarts without re-shipping logs
+  kubernetesAttributes:
+    enabled: true
+    extractAllPodLabels: false
+
+# loadbalancing exporter watches the gateway endpoints
+clusterRole:
+  create: true
+  rules:
+    - apiGroups: [""]
+      resources: [endpoints]
+      verbs: [get, list, watch]
+    - apiGroups: [discovery.k8s.io]
+      resources: [endpointslices]
+      verbs: [get, list, watch]
+
+extraEnvs:
+  - name: K8S_NODE_NAME
+    valueFrom:
+      fieldRef: { fieldPath: spec.nodeName }
+
+config:
+  receivers:
+    jaeger: null
+    zipkin: null
+    prometheus: null
+    otlp:
+      protocols:
+        grpc: { endpoint: "${env:MY_POD_IP}:4317" }
+        http: { endpoint: "${env:MY_POD_IP}:4318" }
+
+  processors:
+    memory_limiter:
+      check_interval: 1s
+      limit_percentage: 80
+      spike_limit_percentage: 25
+    k8sattributes:
+      extract:
+        metadata:
+          - k8s.namespace.name
+          - k8s.pod.name
+          - k8s.pod.uid
+          - k8s.node.name
+          - k8s.deployment.name
+          - k8s.statefulset.name
+          - k8s.daemonset.name
+          - k8s.cronjob.name
+          - k8s.job.name
+          - k8s.container.name
+          - container.image.name
+          - container.image.tag
+        labels:
+          - { tag_name: service.name, key: app.kubernetes.io/name, from: pod }
+          - { tag_name: service.version, key: app.kubernetes.io/version, from: pod }
+          - { tag_name: team, key: team, from: namespace }
+    resourcedetection:
+      detectors: [env, system]
+      override: false
+      system:
+        resource_attributes:
+          host.id: { enabled: false }
+    resource/cluster:
+      attributes:
+        - { key: k8s.cluster.name, value: kind-observability, action: upsert }   # per env
+        - { key: deployment.environment.name, value: lab, action: upsert }       # per env
+    # Container logs: service.name falls back to the workload name.
+    transform/logs:
+      error_mode: ignore
+      log_statements:
+        - context: resource
+          statements:
+            - set(attributes["service.name"], attributes["k8s.deployment.name"]) where attributes["service.name"] == nil
+            - set(attributes["service.name"], attributes["k8s.statefulset.name"]) where attributes["service.name"] == nil
+            - set(attributes["service.name"], attributes["k8s.daemonset.name"]) where attributes["service.name"] == nil
+            - set(attributes["service.name"], attributes["k8s.container.name"]) where attributes["service.name"] == nil
+        # Lift trace context out of JSON log lines → logs ↔ traces correlation
+        - context: log
+          statements:
+            - merge_maps(cache, ParseJSON(body), "upsert") where IsMatch(body, "^\\s*\\{")
+            - set(trace_id.string, cache["trace_id"]) where cache["trace_id"] != nil and Len(cache["trace_id"]) == 32
+            - set(span_id.string, cache["span_id"]) where cache["span_id"] != nil and Len(cache["span_id"]) == 16
+            - set(severity_text, cache["level"]) where cache["level"] != nil
+    batch:
+      send_batch_size: 4096
+      timeout: 2s
+
+  exporters:
+    debug: null
+    loadbalancing:
+      routing_key: traceID
+      protocol:
+        otlp:
+          tls: { insecure: true }
+          timeout: 10s
+      resolver:
+        k8s:
+          service: otel-gateway.observability
+          ports: [4317]
+    otlp/gateway:
+      endpoint: otel-gateway.observability.svc:4317
+      tls: { insecure: true }
+      sending_queue: { enabled: true, queue_size: 5000 }
+      retry_on_failure: { enabled: true }
+
+  extensions:
+    health_check:
+      endpoint: "${env:MY_POD_IP}:13133"
+
+  service:
+    extensions: [health_check]
+    telemetry:
+      metrics:
+        readers:
+          - pull:
+              exporter:
+                prometheus:
+                  host: "${env:MY_POD_IP}"
+                  port: 8888
+    pipelines:
+      traces:
+        receivers: [otlp]
+        processors: [memory_limiter, k8sattributes, resourcedetection, resource/cluster, batch]
+        exporters: [loadbalancing]
+      metrics:
+        receivers: [otlp]
+        processors: [memory_limiter, k8sattributes, resourcedetection, resource/cluster, batch]
+        exporters: [otlp/gateway]
+      logs:
+        receivers: [otlp]       # + filelog (added by the logsCollection preset)
+        processors: [memory_limiter, k8sattributes, resourcedetection, resource/cluster, transform/logs, batch]
+        exporters: [otlp/gateway]

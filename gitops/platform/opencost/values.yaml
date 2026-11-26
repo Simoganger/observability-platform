@@ -1,0 +1,27 @@
+# =============================================================================
+# OpenCost (CNCF) — Kubernetes cost allocation, feeds the stakeholder dashboard.
+# Uses on-demand list prices by default; add cloud billing integration for
+# exact (discounted) numbers: opencost.cloudIntegrationSecret.
+# =============================================================================
+opencost:
+  prometheus:
+    internal:
+      enabled: true
+      serviceName: kps-prometheus
+      namespaceName: observability
+      port: 9090
+  metrics:
+    serviceMonitor:
+      enabled: true
+  exporter:
+    defaultClusterId: kind-observability     # per env
+    resources:
+      requests: { cpu: 10m, memory: 64Mi }
+      limits: { memory: 512Mi }
+  ui:
+    enabled: true
+    resources:
+      requests: { cpu: 10m, memory: 32Mi }
+      limits: { memory: 128Mi }
+  mcp:
+    enabled: false

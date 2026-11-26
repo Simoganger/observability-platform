@@ -1,0 +1,3 @@
+# Local lab: everything on, single replicas, local disk storage.
+global:
+  env: kind

@@ -1,0 +1,31 @@
+# tempo-distributed on GCS with Workload Identity (terraform/envs/gke).
+fullnameOverride: tempo
+reportingEnabled: false
+serviceAccount:
+  annotations:
+    iam.gke.io/gcp-service-account: tempo@<PROJECT_ID>.iam.gserviceaccount.com   # terraform output tempo_gsa_email
+storage:
+  trace:
+    backend: gcs
+    gcs:
+      bucket_name: <PREFIX>-tempo-traces     # terraform output tempo_bucket
+traces:
+  otlp:
+    grpc: { enabled: true }
+    http: { enabled: true }
+compactor:
+  config:
+    compaction:
+      block_retention: 336h    # 14d
+ingester:
+  replicas: 3
+  zoneAwareReplication: { enabled: false }
+  persistence: { enabled: true, size: 20Gi, storageClass: premium-rwo }
+distributor: { replicas: 2 }
+querier: { replicas: 2 }
+queryFrontend: { replicas: 2 }
+memcached: { enabled: true }
+metaMonitoring:
+  serviceMonitor: { enabled: true }
+prometheusRule:
+  enabled: true

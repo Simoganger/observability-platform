@@ -1,0 +1,13 @@
+# Stable query endpoint for Grafana, whatever the Tempo topology:
+#   kind (monolithic)            → tempo
+#   eks/gke/existing (distributed) → tempo-query-frontend   (patched in overlays)
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo-query
+spec:
+  type: ExternalName
+  externalName: tempo.observability.svc.cluster.local
+  ports:
+    - name: http
+      port: 3200

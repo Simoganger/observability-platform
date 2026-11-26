@@ -1,0 +1,13 @@
+# Production-grade Argo CD: HA controller/repo-server/server + redis-ha.
+redis-ha:
+  enabled: true
+controller:
+  replicas: 1
+server:
+  replicas: 2
+  pdb: { enabled: true, minAvailable: 1 }
+repoServer:
+  replicas: 2
+  pdb: { enabled: true, minAvailable: 1 }
+applicationSet:
+  replicas: 2

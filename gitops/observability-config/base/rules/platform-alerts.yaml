@@ -1,0 +1,133 @@
+# =============================================================================
+# Platform alerts NOT covered by the kube-prometheus-stack defaults:
+# telemetry pipeline, log/trace backends, GitOps delivery.
+# (The ~150 upstream Kubernetes/node/Prometheus alerts ship with kps.)
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: platform-alerts
+  labels:
+    team: sre
+spec:
+  groups:
+    - name: telemetry-pipeline
+      rules:
+        - alert: OTelCollectorDown
+          expr: up{job=~".*otel-(agent|gateway|cluster).*"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "OpenTelemetry collector {{ $labels.pod }} is down"
+            description: "Telemetry from node/cluster is being lost while {{ $labels.job }} is unreachable."
+            runbook_url: https://github.com/CHANGE_ME/observability-lab/blob/main/docs/runbooks/telemetry-pipeline.md
+            dashboard_url: http://localhost:3000/d/telemetry-pipeline
+        - alert: OTelCollectorExportFailures
+          expr: |
+            sum by (job, exporter) (
+              rate(otelcol_exporter_send_failed_spans_total[5m])
+              or rate(otelcol_exporter_send_failed_metric_points_total[5m])
+              or rate(otelcol_exporter_send_failed_log_records_total[5m])
+            ) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.job }} cannot deliver data via {{ $labels.exporter }}"
+            description: "Backend behind {{ $labels.exporter }} is rejecting or unreachable; data is retried then dropped."
+            runbook_url: https://github.com/CHANGE_ME/observability-lab/blob/main/docs/runbooks/telemetry-pipeline.md
+            dashboard_url: http://localhost:3000/d/telemetry-pipeline
+        - alert: OTelCollectorQueueNearlyFull
+          expr: |
+            max by (job, exporter) (otelcol_exporter_queue_size / otelcol_exporter_queue_capacity) > 0.8
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.job }} export queue for {{ $labels.exporter }} is {{ $value | humanizePercentage }} full"
+            description: "Data loss is imminent. Scale the gateway or fix the backend."
+            runbook_url: https://github.com/CHANGE_ME/observability-lab/blob/main/docs/runbooks/telemetry-pipeline.md
+            dashboard_url: http://localhost:3000/d/telemetry-pipeline
+        - alert: OTelCollectorRefusingData
+          expr: |
+            sum by (job) (
+              rate(otelcol_receiver_refused_spans_total[5m])
+              or rate(otelcol_receiver_refused_metric_points_total[5m])
+              or rate(otelcol_receiver_refused_log_records_total[5m])
+            ) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.job }} is refusing incoming telemetry (memory_limiter)"
+            description: "The collector is under memory pressure and back-pressuring clients."
+            runbook_url: https://github.com/CHANGE_ME/observability-lab/blob/main/docs/runbooks/telemetry-pipeline.md
+            dashboard_url: http://localhost:3000/d/telemetry-pipeline
+
+    - name: observability-backends
+      rules:
+        - alert: LokiUnavailable
+          expr: up{job=~".*loki.*", job!~".*canary.*"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Loki target {{ $labels.pod }} is down — logs are not being stored"
+            description: "Log ingestion/query is degraded. Agents buffer briefly, then drop."
+            runbook_url: https://github.com/CHANGE_ME/observability-lab/blob/main/docs/runbooks/telemetry-pipeline.md
+            dashboard_url: http://localhost:3000/d/telemetry-pipeline
+        - alert: TempoUnavailable
+          expr: up{job=~".*tempo.*"} == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Tempo target {{ $labels.pod }} is down — traces are not being stored"
+            description: "Trace search is degraded; RED metrics keep working (computed in the OTel gateway)."
+            runbook_url: https://github.com/CHANGE_ME/observability-lab/blob/main/docs/runbooks/telemetry-pipeline.md
+            dashboard_url: http://localhost:3000/d/telemetry-pipeline
+        - alert: PrometheusOTLPIngestionStalled
+          expr: |
+            sum(rate(traces_span_metrics_calls_total[10m])) == 0
+            and on() (sum(up{job=~".*otel-gateway.*"}) > 0)
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "No span-metrics have reached Prometheus for 15m"
+            description: "Either no traffic is instrumented or the gateway → Prometheus OTLP path is broken."
+            runbook_url: https://github.com/CHANGE_ME/observability-lab/blob/main/docs/runbooks/telemetry-pipeline.md
+            dashboard_url: http://localhost:3000/d/telemetry-pipeline
+
+    - name: gitops
+      rules:
+        - alert: ArgoCDAppDegraded
+          expr: max by (name, dest_namespace, health_status) (argocd_app_info{health_status=~"Degraded|Missing"}) == 1
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Argo CD application {{ $labels.name }} is {{ $labels.health_status }}"
+            description: "Workloads in {{ $labels.dest_namespace }} are unhealthy after sync."
+            runbook_url: https://github.com/CHANGE_ME/observability-lab/blob/main/docs/runbooks/argocd-app-unhealthy.md
+            dashboard_url: http://localhost:3000/d/sre-command-center
+        - alert: ArgoCDAppOutOfSync
+          expr: max by (name) (argocd_app_info{sync_status="OutOfSync"}) == 1
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Argo CD application {{ $labels.name }} has drifted from Git for 30m"
+            description: "Cluster state differs from the desired state in Git (manual change or failed sync)."
+            runbook_url: https://github.com/CHANGE_ME/observability-lab/blob/main/docs/runbooks/argocd-app-unhealthy.md
+            dashboard_url: http://localhost:3000/d/sre-command-center
+        - alert: ArgoCDSyncFailed
+          expr: sum by (name) (increase(argocd_app_sync_total{phase=~"Error|Failed"}[15m])) > 0
+          labels:
+            severity: warning
+          annotations:
+            summary: "Argo CD sync of {{ $labels.name }} failed"
+            description: "A deployment did not complete. Check the Application events in Argo CD."
+            runbook_url: https://github.com/CHANGE_ME/observability-lab/blob/main/docs/runbooks/argocd-app-unhealthy.md
+            dashboard_url: http://localhost:3000/d/sre-command-center

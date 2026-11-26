@@ -1,0 +1,10 @@
+# =============================================================================
+# Grafana Tempo — trace storage (OTLP in, TraceQL out).
+# NOTE: kind uses chart "tempo" (monolithic) while eks/gke/existing switch to
+# chart "tempo-distributed" (see gitops/root/values-<env>.yaml). The two charts
+# have different schemas, so ALL settings live in values-<env>.yaml.
+#
+# Endpoints the rest of the platform relies on:
+#   kind      : ingest tempo:4317            query tempo:3200
+#   eks/gke   : ingest tempo-distributor:4317 query tempo-query-frontend:3200
+# =============================================================================

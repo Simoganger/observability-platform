@@ -1,0 +1,57 @@
+{{- $g := .Values.global -}}
+{{- range $name, $c := .Values.components }}
+{{- if $c.enabled }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ $name }}
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: observability-platform
+    observability.lab/env: {{ $g.env }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ $c.wave | default 0 | quote }}
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: {{ $g.project }}
+  destination:
+    server: {{ $g.destinationServer }}
+    namespace: {{ $c.namespace | default $g.namespace }}
+  {{- if $c.chart }}
+  sources:
+    - repoURL: {{ $c.chart.repoURL }}
+      chart: {{ $c.chart.name }}
+      targetRevision: {{ $c.chart.version | quote }}
+      helm:
+        releaseName: {{ $c.releaseName | default $name }}
+        ignoreMissingValueFiles: true
+        valueFiles:
+          - $values/{{ $c.valuesDir }}/values.yaml
+          - $values/{{ $c.valuesDir }}/values-{{ $g.env }}.yaml
+          {{- range $c.extraValueFiles }}
+          - $values/{{ $c.valuesDir }}/{{ . }}
+          {{- end }}
+    - repoURL: {{ $g.repoURL }}
+      targetRevision: {{ $g.targetRevision }}
+      ref: values
+  {{- else }}
+  source:
+    repoURL: {{ $g.repoURL }}
+    targetRevision: {{ $g.targetRevision }}
+    path: {{ if $c.pathIsFlat }}{{ $c.path }}{{ else }}{{ $c.path }}/{{ $g.env }}{{ end }}
+  {{- end }}
+  syncPolicy:
+    {{- toYaml (mergeOverwrite (deepCopy $.Values.syncPolicy) ($c.syncPolicy | default dict)) | nindent 4 }}
+    syncOptions:
+      - CreateNamespace=true
+      {{- range $c.syncOptions }}
+      - {{ . }}
+      {{- end }}
+  {{- with $c.ignoreDifferences }}
+  ignoreDifferences:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- end }}

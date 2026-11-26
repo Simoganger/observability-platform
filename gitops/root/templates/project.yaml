@@ -1,0 +1,25 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: {{ .Values.global.project }}
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-20"
+spec:
+  description: Observability platform and the workloads it monitors
+  {{- $repos := list .Values.global.repoURL }}
+  {{- range $name, $c := .Values.components }}
+  {{- if and $c.enabled $c.chart }}
+  {{- $repos = append $repos $c.chart.repoURL }}
+  {{- end }}
+  {{- end }}
+  sourceRepos:
+    {{- toYaml ($repos | uniq) | nindent 4 }}
+  destinations:
+    - server: {{ .Values.global.destinationServer }}
+      namespace: "*"
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  orphanedResources:
+    warn: true

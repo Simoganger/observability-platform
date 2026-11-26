@@ -1,0 +1,8 @@
+# AWS EKS: object storage on S3 (IRSA), Tempo in microservices mode.
+global:
+  env: eks
+components:
+  tempo:
+    chart: { repoURL: https://grafana.github.io/helm-charts, name: tempo-distributed, version: 1.61.3 }
+  demo-shop:
+    enabled: true

@@ -1,0 +1,134 @@
+# =============================================================================
+# Component catalog — the single source of truth for WHAT runs and WHICH version.
+# Environment files (values-<env>.yaml) only toggle components / override bits.
+# Renovate bumps the chart versions below (see renovate.json).
+# =============================================================================
+global:
+  # Overridden by Terraform (helm parameter) at bootstrap time.
+  repoURL: https://github.com/CHANGE_ME/observability-lab.git
+  targetRevision: main
+  # kind | eks | gke | existing  -> selects values-<env>.yaml in each component dir
+  env: kind
+  destinationServer: https://kubernetes.default.svc
+  project: observability
+  # Namespace that hosts the whole telemetry stack
+  namespace: observability
+
+# Default sync policy applied to every Application.
+syncPolicy:
+  automated:
+    prune: true
+    selfHeal: true
+  retry:
+    limit: 10
+    backoff:
+      duration: 15s
+      factor: 2
+      maxDuration: 5m
+
+components:
+  # ---------------------------------------------------------------- GitOps ---
+  argocd:
+    enabled: true
+    wave: -10
+    namespace: argocd
+    releaseName: argocd
+    chart: { repoURL: https://argoproj.github.io/argo-helm, name: argo-cd, version: 10.20.0 }
+    valuesDir: gitops/platform/argocd
+    # Argo CD must never prune itself.
+    syncPolicy: { automated: { prune: false, selfHeal: true } }
+
+  # --------------------------------------------------------------- Metrics ---
+  kube-prometheus-stack:
+    enabled: true
+    wave: 0
+    releaseName: kps
+    chart: { repoURL: https://prometheus-community.github.io/helm-charts, name: kube-prometheus-stack, version: 93.11.1 }
+    valuesDir: gitops/platform/kube-prometheus-stack
+    syncOptions: [ServerSideApply=true]   # CRDs exceed the client-side annotation limit
+
+  # ------------------------------------------------------------------ Logs ---
+  loki:
+    enabled: true
+    wave: 1
+    releaseName: loki
+    chart: { repoURL: https://grafana.github.io/helm-charts, name: loki, version: 7.7.0 }
+    valuesDir: gitops/platform/loki
+
+  # ---------------------------------------------------------------- Traces ---
+  # kind uses the monolithic chart (local disk); cloud envs switch to
+  # tempo-distributed + object storage in their values-<env>.yaml.
+  tempo:
+    enabled: true
+    wave: 1
+    releaseName: tempo
+    chart: { repoURL: https://grafana.github.io/helm-charts, name: tempo, version: 1.24.4 }
+    valuesDir: gitops/platform/tempo
+
+  # ------------------------------------------------------- OpenTelemetry -----
+  otel-operator:
+    enabled: true
+    wave: 1
+    releaseName: otel-operator
+    chart: { repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts, name: opentelemetry-operator, version: 0.129.2 }
+    valuesDir: gitops/platform/otel-operator
+    syncOptions: [ServerSideApply=true]
+
+  otel-gateway:
+    enabled: true
+    wave: 2
+    releaseName: otel-gateway
+    chart: { repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts, name: opentelemetry-collector, version: 0.183.2 }
+    valuesDir: gitops/platform/otel-gateway
+
+  otel-agent:
+    enabled: true
+    wave: 3
+    releaseName: otel-agent
+    chart: { repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts, name: opentelemetry-collector, version: 0.183.2 }
+    valuesDir: gitops/platform/otel-agent
+
+  otel-cluster:
+    enabled: true
+    wave: 3
+    releaseName: otel-cluster
+    chart: { repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts, name: opentelemetry-collector, version: 0.183.2 }
+    valuesDir: gitops/platform/otel-cluster
+
+  # ------------------------------------------------------------ FinOps ------
+  opencost:
+    enabled: true
+    wave: 2
+    releaseName: opencost
+    chart: { repoURL: https://opencost.github.io/opencost-helm-chart, name: opencost, version: 2.5.35 }
+    valuesDir: gitops/platform/opencost
+
+  # ------------------------------------------- Dashboards, rules, SLOs ------
+  observability-config:
+    enabled: true
+    wave: 4
+    path: gitops/observability-config/overlays   # + /<env>
+    syncOptions: [SkipDryRunOnMissingResource=true, ServerSideApply=true]
+
+  # ---------------------------------------------- Commercial (optional) -----
+  datadog-operator:
+    enabled: false
+    wave: 1
+    namespace: datadog
+    releaseName: datadog-operator
+    chart: { repoURL: https://helm.datadoghq.com, name: datadog-operator, version: 2.33.0 }
+    valuesDir: gitops/platform/datadog-operator
+  datadog-agent:
+    enabled: false
+    wave: 2
+    namespace: datadog
+    path: gitops/addons/datadog
+    pathIsFlat: true
+    syncOptions: [SkipDryRunOnMissingResource=true]
+
+  # ------------------------------------------------------ Workloads ---------
+  demo-shop:
+    enabled: true
+    wave: 5
+    namespace: demo
+    path: gitops/apps/demo-shop/overlays

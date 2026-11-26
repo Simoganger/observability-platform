@@ -1,0 +1,33 @@
+# tempo-distributed on S3 with IRSA (role from terraform/envs/eks).
+fullnameOverride: tempo
+reportingEnabled: false
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::<ACCOUNT_ID>:role/eks-observability-tempo   # terraform output tempo_role_arn
+storage:
+  trace:
+    backend: s3
+    s3:
+      bucket: <PREFIX>-tempo-traces     # terraform output tempo_bucket
+      endpoint: s3.eu-west-1.amazonaws.com
+      region: eu-west-1
+traces:
+  otlp:
+    grpc: { enabled: true }
+    http: { enabled: true }
+compactor:
+  config:
+    compaction:
+      block_retention: 336h    # 14d
+ingester:
+  replicas: 3
+  zoneAwareReplication: { enabled: false }
+  persistence: { enabled: true, size: 20Gi, storageClass: gp3 }
+distributor: { replicas: 2 }
+querier: { replicas: 2 }
+queryFrontend: { replicas: 2 }
+memcached: { enabled: true }
+metaMonitoring:
+  serviceMonitor: { enabled: true }
+prometheusRule:
+  enabled: true

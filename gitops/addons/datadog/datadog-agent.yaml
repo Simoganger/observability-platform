@@ -1,0 +1,45 @@
+# Datadog Agent managed by the Datadog Operator (optional).
+# Runs alongside the CNCF stack: infrastructure, live processes, NPM, and
+# Kubernetes state go to Datadog, while OTel traces/logs/metrics are dual-shipped
+# by the OTel gateway (gitops/platform/otel-gateway/values-datadog.yaml).
+apiVersion: datadoghq.com/v2alpha1
+kind: DatadogAgent
+metadata:
+  name: datadog
+  namespace: datadog
+spec:
+  global:
+    clusterName: kind-observability
+    site: datadoghq.eu
+    credentials:
+      apiSecret:
+        secretName: datadog-secret
+        keyName: api-key
+      appSecret:
+        secretName: datadog-secret
+        keyName: app-key
+    tags:
+      - env:lab
+      - managed-by:argocd
+  features:
+    apm:
+      enabled: false          # traces arrive via the OTel gateway instead
+    logCollection:
+      enabled: false          # logs arrive via the OTel gateway instead
+    liveProcessCollection:
+      enabled: true
+    liveContainerCollection:
+      enabled: true
+    orchestratorExplorer:
+      enabled: true
+    kubeStateMetricsCore:
+      enabled: true
+    eventCollection:
+      collectKubernetesEvents: true
+    npm:
+      enabled: false          # requires privileged system-probe
+  override:
+    nodeAgent:
+      env:
+        - name: DD_KUBELET_TLS_VERIFY
+          value: "false"      # kind kubelets use self-signed certs; remove on EKS/GKE

@@ -1,0 +1,29 @@
+# kind: control-plane metrics are exposed by the kubeadm patches in
+# terraform/envs/kind (bind 0.0.0.0), so etcd/scheduler/controller-manager
+# and kube-proxy are fully monitored — same as a real cluster.
+prometheus:
+  prometheusSpec:
+    retention: 3d
+    retentionSize: 4GB
+    externalLabels:
+      cluster: kind-observability
+    resources:
+      requests: { cpu: 100m, memory: 512Mi }
+      limits: { memory: 2Gi }
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 5Gi
+
+kubeEtcd:
+  service:
+    port: 2381
+    targetPort: 2381
+
+grafana:
+  grafana.ini:
+    server:
+      root_url: http://localhost:3000

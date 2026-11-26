@@ -1,0 +1,9 @@
+# Datadog Operator — optional commercial backend (disabled by default).
+# Enable components.datadog-operator + components.datadog-agent in
+# gitops/root/values-<env>.yaml and create the secret first:
+#   kubectl create ns datadog
+#   kubectl -n datadog create secret generic datadog-secret \
+#     --from-literal api-key=<DD_API_KEY> --from-literal app-key=<DD_APP_KEY>
+resources:
+  requests: { cpu: 20m, memory: 64Mi }
+  limits: { memory: 256Mi }

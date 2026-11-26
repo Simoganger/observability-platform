@@ -1,0 +1,14 @@
+# Plug the platform into an EXISTING cluster that already runs Argo CD and workloads.
+# See docs/onboarding-existing-cluster.md.
+global:
+  env: existing
+components:
+  # Your Argo CD keeps managing itself; we only add Applications to it.
+  argocd:
+    enabled: false
+  # Swap to tempo-distributed if you have object storage (recommended).
+  tempo:
+    chart: { repoURL: https://grafana.github.io/helm-charts, name: tempo-distributed, version: 1.61.3 }
+  # Your own workloads replace the demo; onboard them with one annotation.
+  demo-shop:
+    enabled: false

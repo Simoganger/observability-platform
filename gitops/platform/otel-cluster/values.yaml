@@ -1,0 +1,97 @@
+# =============================================================================
+# OpenTelemetry Collector — CLUSTER (Deployment, exactly 1 replica)
+# Cluster-scoped signals that must be collected ONCE:
+#   • Kubernetes Events (k8sobjects watch) → Loki, as service_name="k8s-events"
+# (Cluster state metrics come from kube-state-metrics in kube-prometheus-stack.)
+# =============================================================================
+fullnameOverride: otel-cluster
+mode: deployment
+replicaCount: 1            # do NOT scale: events would be duplicated
+
+image:
+  repository: otel/opentelemetry-collector-contrib
+
+resources:
+  requests: { cpu: 20m, memory: 64Mi }
+  limits: { memory: 256Mi }
+
+ports:
+  otlp: { enabled: false }
+  otlp-http: { enabled: false }
+  jaeger-compact: { enabled: false }
+  jaeger-thrift: { enabled: false }
+  jaeger-grpc: { enabled: false }
+  zipkin: { enabled: false }
+  metrics: { enabled: true }
+
+serviceMonitor:
+  enabled: true
+  metricsEndpoints:
+    - port: metrics
+
+presets:
+  kubernetesEvents:
+    enabled: true
+
+config:
+  receivers:
+    jaeger: null
+    zipkin: null
+    prometheus: null
+    otlp: null
+
+  processors:
+    memory_limiter:
+      check_interval: 1s
+      limit_percentage: 80
+      spike_limit_percentage: 25
+    resource/events:
+      attributes:
+        - { key: service.name, value: k8s-events, action: upsert }
+        - { key: k8s.cluster.name, value: kind-observability, action: upsert }   # per env
+        - { key: deployment.environment.name, value: lab, action: upsert }       # per env
+    # Promote the involved object's namespace so events are filterable per namespace.
+    transform/events:
+      error_mode: ignore
+      log_statements:
+        - context: log
+          statements:
+            - set(attributes["k8s.event.reason"], body["object"]["reason"])
+            - set(attributes["k8s.event.type"], body["object"]["type"])
+            - set(attributes["k8s.object.kind"], body["object"]["involvedObject"]["kind"])
+            - set(attributes["k8s.object.name"], body["object"]["involvedObject"]["name"])
+            - set(attributes["k8s.namespace.name"], body["object"]["involvedObject"]["namespace"])
+            - set(severity_text, "WARN") where body["object"]["type"] == "Warning"
+            - set(severity_text, "INFO") where body["object"]["type"] == "Normal"
+    batch:
+      timeout: 5s
+
+  exporters:
+    debug: null
+    otlp/gateway:
+      endpoint: otel-gateway.observability.svc:4317
+      tls: { insecure: true }
+      sending_queue: { enabled: true }
+      retry_on_failure: { enabled: true }
+
+  extensions:
+    health_check:
+      endpoint: "${env:MY_POD_IP}:13133"
+
+  service:
+    extensions: [health_check]
+    telemetry:
+      metrics:
+        readers:
+          - pull:
+              exporter:
+                prometheus:
+                  host: "${env:MY_POD_IP}"
+                  port: 8888
+    pipelines:
+      traces: null
+      metrics: null
+      logs:
+        receivers: []          # k8sobjects added by the kubernetesEvents preset
+        processors: [memory_limiter, resource/events, transform/events, batch]
+        exporters: [otlp/gateway]

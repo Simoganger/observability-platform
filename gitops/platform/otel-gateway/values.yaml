@@ -1,0 +1,153 @@
+# =============================================================================
+# OpenTelemetry Collector — GATEWAY (Deployment)
+# The single choke-point between workloads and backends:
+#   • span-metrics + service-graph (RED metrics for every service, no code)
+#   • tail sampling (keep 100% errors & slow traces, sample the rest)
+#   • fan-out to Prometheus (OTLP), Loki (OTLP), Tempo (OTLP)
+#   • optional dual-shipping to Datadog (values-datadog.yaml)
+# Agents load-balance spans by trace ID to the gateway pods (see otel-agent).
+# =============================================================================
+fullnameOverride: otel-gateway
+mode: deployment
+replicaCount: 1
+
+image:
+  repository: otel/opentelemetry-collector-contrib
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { memory: 1Gi }      # GOMEMLIMIT is derived from this (useGOMEMLIMIT)
+
+ports:
+  otlp: { enabled: true }
+  otlp-http: { enabled: true }
+  jaeger-compact: { enabled: false }
+  jaeger-thrift: { enabled: false }
+  jaeger-grpc: { enabled: false }
+  zipkin: { enabled: false }
+  metrics: { enabled: true }
+
+serviceMonitor:
+  enabled: true
+  metricsEndpoints:
+    - port: metrics
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+presets:
+  kubernetesAttributes:
+    enabled: false     # enrichment already done by the node agents
+
+config:
+  receivers:
+    jaeger: null
+    zipkin: null
+    prometheus: null
+    otlp:
+      protocols:
+        grpc: { endpoint: "${env:MY_POD_IP}:4317" }
+        http: { endpoint: "${env:MY_POD_IP}:4318" }
+
+  connectors:
+    spanmetrics:
+      namespace: traces.span.metrics
+      histogram:
+        unit: s
+        explicit:
+          buckets: [5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2.5s, 5s, 10s]
+      dimensions:
+        - name: http.response.status_code
+        - name: http.request.method
+        - name: http.route
+      exemplars:
+        enabled: true
+      metrics_flush_interval: 15s
+      resource_metrics_key_attributes: [service.name, k8s.namespace.name]
+    servicegraph:
+      latency_histogram_buckets: [10ms, 50ms, 100ms, 250ms, 500ms, 1s, 5s]
+      dimensions: [k8s.namespace.name]
+      store:
+        ttl: 10s
+        max_items: 10000
+    forward/sampling: {}
+
+  processors:
+    memory_limiter:
+      check_interval: 1s
+      limit_percentage: 80
+      spike_limit_percentage: 25
+    batch:
+      send_batch_size: 8192
+      timeout: 5s
+    tail_sampling:
+      decision_wait: 10s
+      num_traces: 50000
+      policies:
+        - name: keep-errors
+          type: status_code
+          status_code: { status_codes: [ERROR] }
+        - name: keep-slow
+          type: latency
+          latency: { threshold_ms: 500 }
+        - name: sample-rest
+          type: probabilistic
+          probabilistic: { sampling_percentage: 25 }
+    # Drop health-check noise before it costs anything.
+    filter/noise:
+      error_mode: ignore
+      traces:
+        span:
+          - 'attributes["url.path"] == "/healthz"'
+          - 'attributes["url.path"] == "/readyz"'
+          - 'attributes["http.route"] == "/metrics"'
+
+  exporters:
+    debug: null
+    otlp/tempo:
+      endpoint: tempo.observability.svc:4317        # overridden per env
+      tls: { insecure: true }
+      sending_queue: { enabled: true, queue_size: 5000 }
+      retry_on_failure: { enabled: true }
+    otlphttp/prometheus:
+      metrics_endpoint: http://kps-prometheus.observability.svc:9090/api/v1/otlp/v1/metrics
+      tls: { insecure: true }
+      sending_queue: { enabled: true }
+      retry_on_failure: { enabled: true }
+    otlphttp/loki:
+      endpoint: http://loki-gateway.observability.svc/otlp
+      sending_queue: { enabled: true, queue_size: 5000 }
+      retry_on_failure: { enabled: true }
+
+  extensions:
+    health_check:
+      endpoint: "${env:MY_POD_IP}:13133"
+
+  service:
+    extensions: [health_check]
+    telemetry:
+      metrics:
+        readers:
+          - pull:
+              exporter:
+                prometheus:
+                  host: "${env:MY_POD_IP}"
+                  port: 8888
+    pipelines:
+      traces:
+        receivers: [otlp]
+        processors: [memory_limiter, filter/noise]
+        exporters: [spanmetrics, servicegraph, forward/sampling]
+      traces/sampled:
+        receivers: [forward/sampling]
+        processors: [tail_sampling, batch]
+        exporters: [otlp/tempo]
+      metrics:
+        receivers: [otlp, spanmetrics, servicegraph]
+        processors: [memory_limiter, batch]
+        exporters: [otlphttp/prometheus]
+      logs:
+        receivers: [otlp]
+        processors: [memory_limiter, batch]
+        exporters: [otlphttp/loki]

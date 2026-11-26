@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders
+  labels:
+    app.kubernetes.io/name: orders
+    app.kubernetes.io/part-of: demo-shop
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: orders
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: orders
+        app.kubernetes.io/part-of: demo-shop
+      annotations:
+        # ↓ the ONLY thing needed to get traces + RED metrics + log correlation
+        instrumentation.opentelemetry.io/inject-python: "observability/default"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: app
+          image: docker.io/CHANGE_ME/demo-shop:0.1.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: SERVICE_ROLE, value: orders }
+            - { name: PAYMENTS_URL, value: "http://payments:8080" }
+          ports:
+            - { name: http, containerPort: 8080 }
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 384Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders
+  labels:
+    app.kubernetes.io/name: orders
+spec:
+  selector:
+    app.kubernetes.io/name: orders
+  ports:
+    - { name: http, port: 8080, targetPort: http }

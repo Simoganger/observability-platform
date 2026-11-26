@@ -1,0 +1,7 @@
+apiVersion: v2
+name: observability-root
+description: >-
+  App-of-apps for the observability platform. Renders one Argo CD Application per
+  enabled component, layering common values with environment-specific values.
+type: application
+version: 1.0.0

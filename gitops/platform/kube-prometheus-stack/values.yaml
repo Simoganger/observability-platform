@@ -1,0 +1,249 @@
+# =============================================================================
+# kube-prometheus-stack: Prometheus Operator, Prometheus, Alertmanager, Grafana,
+# node-exporter, kube-state-metrics + ~150 community alerts & dashboards.
+# Release name "kps" → services: kps-prometheus, kps-alertmanager, grafana
+# =============================================================================
+fullnameOverride: kps
+
+crds:
+  enabled: true
+  upgradeJob:
+    enabled: false
+
+defaultRules:
+  create: true
+  labels:
+    team: sre
+  # Upstream rules link to runbooks.prometheus-operator.dev; our own rules
+  # (observability-config) link to docs/runbooks in this repo.
+  additionalRuleLabels:
+    source: kube-prometheus
+
+# --------------------------------------------------------------- Prometheus ---
+prometheus:
+  prometheusSpec:
+    replicas: 1
+    retention: 15d
+    retentionSize: 18GB
+    scrapeInterval: 30s
+    evaluationInterval: 30s
+    # Discover ServiceMonitors/PodMonitors/Rules from ANY namespace & release,
+    # so existing workloads in a brownfield cluster are picked up automatically.
+    ruleSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    scrapeConfigSelectorNilUsesHelmValues: false
+    # Native OTLP ingestion: the OTel gateway pushes span-metrics & app metrics here.
+    enableOTLPReceiver: true
+    otlp:
+      promoteResourceAttributes:
+        - service.namespace
+        - service.version
+        - deployment.environment.name
+        - k8s.cluster.name
+        - k8s.namespace.name
+        - k8s.deployment.name
+        - k8s.statefulset.name
+        - k8s.daemonset.name
+        - k8s.pod.name
+        - k8s.node.name
+    tsdb:
+      outOfOrderTimeWindow: 30m   # OTLP pushes can arrive slightly out of order
+    enableFeatures:
+      - exemplar-storage
+    exemplars:
+      maxSize: 100000
+    externalLabels:
+      cluster: CHANGE_ME          # overridden per env
+    resources:
+      requests: { cpu: 200m, memory: 1Gi }
+      limits: { memory: 4Gi }
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 20Gi
+
+# ------------------------------------------------------------- Alertmanager ---
+alertmanager:
+  alertmanagerSpec:
+    replicas: 1
+    # Mounted at /etc/alertmanager/secrets/<secret>/<key>; created out-of-band
+    # (Terraform / External Secrets / scripts/create-secrets.sh). Never in Git.
+    secrets:
+      - alertmanager-incident-secrets
+    resources:
+      requests: { cpu: 10m, memory: 64Mi }
+      limits: { memory: 256Mi }
+    storage:
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 2Gi
+  templateFiles:
+    incident.tmpl: |-
+      {{ define "incident.title" -}}
+      [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.severity | toUpper }} · {{ .CommonLabels.alertname }}{{ with .CommonLabels.service_name }} · {{ . }}{{ end }}{{ with .CommonLabels.namespace }} · ns/{{ . }}{{ end }}
+      {{- end }}
+
+      {{ define "incident.text" -}}
+      {{ range .Alerts -}}
+      *{{ .Annotations.summary }}*
+      {{ .Annotations.description }}
+      {{ with .Labels.cluster }}• Cluster: `{{ . }}`{{ end }}
+      {{ with .Annotations.runbook_url }}• :book: <{{ . }}|Runbook>{{ end }}
+      {{ with .Annotations.dashboard_url }}• :bar_chart: <{{ . }}|Dashboard>{{ end }}
+      • :mag: <{{ .GeneratorURL }}|Query>
+      {{ end }}
+      {{- end }}
+  config:
+    global:
+      resolve_timeout: 5m
+      pagerduty_url: https://events.pagerduty.com/v2/enqueue
+    templates:
+      - /etc/alertmanager/config/*.tmpl
+    route:
+      receiver: slack-warning
+      group_by: [alertname, cluster, namespace, service_name]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        - receiver: "null"
+          matchers: ['alertname = "InfoInhibitor"']
+        # Dead man's switch: wire to healthchecks.io / PagerDuty heartbeat in prod
+        # (see docs/incident-management.md). Null here to keep the lab quiet.
+        - receiver: "null"
+          matchers: ['alertname = "Watchdog"']
+        # P1/P2 → page the on-call + post in #incidents
+        - receiver: pagerduty-critical
+          matchers: ['severity = "critical"']
+          group_wait: 10s
+          repeat_interval: 1h
+          continue: true
+        - receiver: slack-critical
+          matchers: ['severity = "critical"']
+        # P3 → ticket-level noise goes to Slack only
+        - receiver: slack-warning
+          matchers: ['severity = "warning"']
+        - receiver: "null"
+          matchers: ['severity = "info"']
+    inhibit_rules:
+      - source_matchers: ['severity = "critical"']
+        target_matchers: ['severity =~ "warning|info"']
+        equal: [alertname, cluster, namespace]
+      - source_matchers: ['severity = "warning"']
+        target_matchers: ['severity = "info"']
+        equal: [alertname, cluster, namespace]
+      - source_matchers: ['alertname = "InfoInhibitor"']
+        target_matchers: ['severity = "info"']
+        equal: [namespace]
+      # A dead node explains everything running on it.
+      - source_matchers: ['alertname = "KubeNodeNotReady"']
+        target_matchers: ['alertname =~ "KubePod.*|TargetDown"']
+        equal: [cluster]
+    receivers:
+      - name: "null"
+      - name: pagerduty-critical
+        pagerduty_configs:
+          - routing_key_file: /etc/alertmanager/secrets/alertmanager-incident-secrets/pagerduty-routing-key
+            send_resolved: true
+            severity: critical
+            class: '{{ .CommonLabels.alertname }}'
+            component: '{{ with .CommonLabels.service_name }}{{ . }}{{ else }}{{ .CommonLabels.namespace }}{{ end }}'
+            group: '{{ .CommonLabels.cluster }}'
+            description: '{{ template "incident.title" . }}'
+            details:
+              summary: '{{ .CommonAnnotations.summary }}'
+              description: '{{ .CommonAnnotations.description }}'
+              runbook: '{{ .CommonAnnotations.runbook_url }}'
+              firing: '{{ .Alerts.Firing | len }}'
+            links:
+              - href: '{{ .CommonAnnotations.runbook_url }}'
+                text: Runbook
+              - href: '{{ .CommonAnnotations.dashboard_url }}'
+                text: SRE dashboard
+      - name: slack-critical
+        slack_configs:
+          - api_url_file: /etc/alertmanager/secrets/alertmanager-incident-secrets/slack-webhook-url
+            channel: '#incidents'
+            send_resolved: true
+            color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+            title: '{{ template "incident.title" . }}'
+            text: '{{ template "incident.text" . }}'
+      - name: slack-warning
+        slack_configs:
+          - api_url_file: /etc/alertmanager/secrets/alertmanager-incident-secrets/slack-webhook-url
+            channel: '#alerts'
+            send_resolved: true
+            color: '{{ if eq .Status "firing" }}warning{{ else }}good{{ end }}'
+            title: '{{ template "incident.title" . }}'
+            text: '{{ template "incident.text" . }}'
+
+# ------------------------------------------------------------------ Grafana ---
+grafana:
+  fullnameOverride: grafana
+  defaultDashboardsTimezone: browser
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  grafana.ini:
+    analytics:
+      reporting_enabled: false
+      check_for_updates: false
+    users:
+      viewers_can_edit: false
+    auth.anonymous:
+      enabled: false
+    feature_toggles:
+      enable: traceToMetrics correlations
+    unified_alerting:
+      enabled: true
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
+        allowUiUpdates: false
+    datasources:
+      enabled: true
+      searchNamespace: ALL          # Loki/Tempo datasources ship via observability-config
+      exemplarTraceIdDestinations:
+        datasourceUid: tempo
+        traceIdLabelName: trace_id
+        urlDisplayLabel: View trace
+  resources:
+    requests: { cpu: 50m, memory: 192Mi }
+    limits: { memory: 512Mi }
+  serviceMonitor:
+    enabled: true
+
+# ------------------------------------------------------------- Exporters ---
+kube-state-metrics:
+  metricLabelsAllowlist:
+    - pods=[app.kubernetes.io/name,app.kubernetes.io/version,team]
+    - deployments=[app.kubernetes.io/name,app.kubernetes.io/version,team]
+    - namespaces=[team,cost-center]
+  resources:
+    requests: { cpu: 10m, memory: 64Mi }
+    limits: { memory: 256Mi }
+
+prometheus-node-exporter:
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { memory: 128Mi }
+
+prometheusOperator:
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 512Mi }

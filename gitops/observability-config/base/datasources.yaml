@@ -1,0 +1,71 @@
+# Loki + Tempo datasources, picked up by the Grafana sidecar (label grafana_datasource=1).
+# Wired for full correlation:  metrics ⇄ traces ⇄ logs
+#   Prometheus exemplar → Tempo trace           (kps values: exemplarTraceIdDestinations)
+#   Loki log line (trace_id)  → Tempo trace     (derivedFields below)
+#   Tempo span → Loki logs / Prometheus RED     (tracesToLogsV2 / tracesToMetrics)
+# NOTE: "$$" escapes "$" in Grafana provisioning files.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources-lgtm
+  labels:
+    grafana_datasource: "1"
+data:
+  lgtm.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Loki
+        uid: loki
+        type: loki
+        access: proxy
+        url: http://loki-gateway.observability.svc
+        jsonData:
+          maxLines: 1000
+          timeout: 60
+          derivedFields:
+            - name: TraceID
+              matcherType: label
+              matcherRegex: trace_id
+              datasourceUid: tempo
+              url: "$${__value.raw}"
+              urlDisplayLabel: View trace
+      - name: Tempo
+        uid: tempo
+        type: tempo
+        access: proxy
+        url: http://tempo-query.observability.svc:3200
+        jsonData:
+          nodeGraph:
+            enabled: true
+          serviceMap:
+            datasourceUid: prometheus
+          search:
+            hide: false
+          lokiSearch:
+            datasourceUid: loki
+          traceQuery:
+            timeShiftEnabled: true
+            spanStartTimeShift: "-1h"
+            spanEndTimeShift: "1h"
+          tracesToLogsV2:
+            datasourceUid: loki
+            spanStartTimeShift: "-5m"
+            spanEndTimeShift: "5m"
+            filterByTraceID: true
+            filterBySpanID: false
+            tags:
+              - { key: service.name, value: service_name }
+              - { key: k8s.namespace.name, value: k8s_namespace_name }
+          tracesToMetrics:
+            datasourceUid: prometheus
+            spanStartTimeShift: "-5m"
+            spanEndTimeShift: "5m"
+            tags:
+              - { key: service.name, value: service_name }
+            queries:
+              - name: Request rate
+                query: 'sum(rate(traces_span_metrics_calls_total{$$__tags}[5m]))'
+              - name: Error rate
+                query: 'sum(rate(traces_span_metrics_calls_total{$$__tags, status_code="STATUS_CODE_ERROR"}[5m]))'
+              - name: p95 latency
+                query: 'histogram_quantile(0.95, sum by (le) (rate(traces_span_metrics_duration_seconds_bucket{$$__tags}[5m])))'

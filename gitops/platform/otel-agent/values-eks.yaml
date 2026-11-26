@@ -1,0 +1,8 @@
+config:
+  processors:
+    resourcedetection:
+      detectors: [env, eks, ec2]
+    resource/cluster:
+      attributes:
+        - { key: k8s.cluster.name, value: eks-observability, action: upsert }
+        - { key: deployment.environment.name, value: production, action: upsert }

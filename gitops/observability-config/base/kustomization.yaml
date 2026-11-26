@@ -1,0 +1,34 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: observability
+
+resources:
+  - datasources.yaml
+  - tempo-query-service.yaml
+  - instrumentation/instrumentation.yaml
+  - rules/slo-rules.yaml
+  - rules/platform-alerts.yaml
+  - rules/business-kpis.yaml
+
+# Dashboards → ConfigMaps picked up by the Grafana sidecar, filed into folders.
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    grafana_dashboard: "1"
+
+configMapGenerator:
+  - name: dashboard-executive-overview
+    files: [dashboards/executive-overview.json]
+    options:
+      annotations:
+        grafana_folder: "Executive"
+  - name: dashboard-sre-command-center
+    files: [dashboards/sre-command-center.json]
+    options:
+      annotations:
+        grafana_folder: "SRE"
+  - name: dashboard-telemetry-pipeline
+    files: [dashboards/telemetry-pipeline.json]
+    options:
+      annotations:
+        grafana_folder: "SRE"

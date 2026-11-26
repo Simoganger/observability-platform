@@ -1,0 +1,161 @@
+# =============================================================================
+# Service Level Objectives — generated for EVERY service that emits server spans
+# (zero per-service config: onboard a workload → it gets an SLO).
+#
+#   Availability SLO : 99.5 % of server requests succeed      (budget 0.005)
+#   Latency SLO      : 99 %  of server requests < 500 ms       (budget 0.01)
+#
+# Multi-window, multi-burn-rate alerts (Google SRE Workbook, ch. 5).
+# SLIs come from the OTel gateway span-metrics connector.
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: slo-rules
+  labels:
+    team: sre
+spec:
+  groups:
+    # ------------------------------------------------------------ SLIs -----
+    - name: slo-sli-availability
+      interval: 30s
+      rules:
+        - record: slo:sli_error:ratio_rate5m
+          expr: |
+            sum by (k8s_namespace_name, service_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_ERROR"}[5m]))
+            /
+            sum by (k8s_namespace_name, service_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER"}[5m]))
+        - record: slo:sli_error:ratio_rate30m
+          expr: |
+            sum by (k8s_namespace_name, service_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_ERROR"}[30m]))
+            /
+            sum by (k8s_namespace_name, service_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER"}[30m]))
+        - record: slo:sli_error:ratio_rate1h
+          expr: |
+            sum by (k8s_namespace_name, service_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_ERROR"}[1h]))
+            /
+            sum by (k8s_namespace_name, service_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER"}[1h]))
+        - record: slo:sli_error:ratio_rate2h
+          expr: |
+            sum by (k8s_namespace_name, service_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_ERROR"}[2h]))
+            /
+            sum by (k8s_namespace_name, service_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER"}[2h]))
+        - record: slo:sli_error:ratio_rate6h
+          expr: |
+            sum by (k8s_namespace_name, service_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_ERROR"}[6h]))
+            /
+            sum by (k8s_namespace_name, service_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER"}[6h]))
+        - record: slo:sli_error:ratio_rate1d
+          expr: |
+            sum by (k8s_namespace_name, service_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_ERROR"}[1d]))
+            /
+            sum by (k8s_namespace_name, service_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER"}[1d]))
+        - record: slo:sli_error:ratio_rate3d
+          expr: |
+            sum by (k8s_namespace_name, service_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_ERROR"}[3d]))
+            /
+            sum by (k8s_namespace_name, service_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER"}[3d]))
+
+    - name: slo-sli-long-window
+      interval: 5m
+      rules:
+        # 30-day compliance window, approximated from the 5m SLI (cheap to query).
+        - record: slo:sli_error:ratio_rate30d
+          expr: avg_over_time(slo:sli_error:ratio_rate5m[30d])
+        - record: slo:objective:ratio
+          expr: 0.995 + 0 * group by (k8s_namespace_name, service_name) (slo:sli_error:ratio_rate5m)
+        - record: slo:error_budget_remaining:ratio
+          expr: 1 - (slo:sli_error:ratio_rate30d / (1 - slo:objective:ratio))
+
+    - name: slo-sli-latency
+      interval: 30s
+      rules:
+        - record: slo:sli_latency_slow:ratio_rate5m
+          expr: |
+            1 - (
+              sum by (k8s_namespace_name, service_name) (rate(traces_span_metrics_duration_seconds_bucket{span_kind="SPAN_KIND_SERVER", le="0.5"}[5m]))
+              /
+              sum by (k8s_namespace_name, service_name) (rate(traces_span_metrics_duration_seconds_count{span_kind="SPAN_KIND_SERVER"}[5m]))
+            )
+        - record: slo:sli_latency_slow:ratio_rate1h
+          expr: |
+            1 - (
+              sum by (k8s_namespace_name, service_name) (rate(traces_span_metrics_duration_seconds_bucket{span_kind="SPAN_KIND_SERVER", le="0.5"}[1h]))
+              /
+              sum by (k8s_namespace_name, service_name) (rate(traces_span_metrics_duration_seconds_count{span_kind="SPAN_KIND_SERVER"}[1h]))
+            )
+        - record: service:latency_p95:seconds_rate5m
+          expr: |
+            histogram_quantile(0.95, sum by (k8s_namespace_name, service_name, le) (rate(traces_span_metrics_duration_seconds_bucket{span_kind="SPAN_KIND_SERVER"}[5m])))
+        - record: service:requests:rate5m
+          expr: |
+            sum by (k8s_namespace_name, service_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER"}[5m]))
+
+    # ---------------------------------------------------------- Alerts -----
+    - name: slo-alerts
+      rules:
+        - alert: SLOErrorBudgetBurnFast
+          # 2 % of the 30d budget in 1 h → page now
+          expr: |
+            slo:sli_error:ratio_rate1h > (14.4 * 0.005)
+            and
+            slo:sli_error:ratio_rate5m > (14.4 * 0.005)
+            and on (k8s_namespace_name, service_name)
+            service:requests:rate5m > 0.05
+          for: 2m
+          labels:
+            severity: critical
+            slo: availability
+          annotations:
+            summary: "{{ $labels.service_name }} is burning its error budget 14x too fast"
+            description: "Error ratio over 1h is {{ $value | humanizePercentage }} (SLO 99.5%). At this rate the 30-day budget is gone in ~2 days."
+            runbook_url: https://github.com/CHANGE_ME/observability-lab/blob/main/docs/runbooks/slo-error-budget-burn.md
+            dashboard_url: http://localhost:3000/d/sre-command-center?var-service={{ $labels.service_name }}
+        - alert: SLOErrorBudgetBurnMedium
+          # 5 % of the budget in 6 h → page
+          expr: |
+            slo:sli_error:ratio_rate6h > (6 * 0.005)
+            and
+            slo:sli_error:ratio_rate30m > (6 * 0.005)
+            and on (k8s_namespace_name, service_name)
+            service:requests:rate5m > 0.05
+          for: 5m
+          labels:
+            severity: critical
+            slo: availability
+          annotations:
+            summary: "{{ $labels.service_name }} is burning its error budget 6x too fast"
+            description: "Error ratio over 6h is {{ $value | humanizePercentage }} (SLO 99.5%)."
+            runbook_url: https://github.com/CHANGE_ME/observability-lab/blob/main/docs/runbooks/slo-error-budget-burn.md
+            dashboard_url: http://localhost:3000/d/sre-command-center?var-service={{ $labels.service_name }}
+        - alert: SLOErrorBudgetBurnSlow
+          # 10 % of the budget in 3 d → ticket
+          expr: |
+            (slo:sli_error:ratio_rate1d > (3 * 0.005) and slo:sli_error:ratio_rate2h > (3 * 0.005))
+            or
+            (slo:sli_error:ratio_rate3d > (1 * 0.005) and slo:sli_error:ratio_rate6h > (1 * 0.005))
+          for: 15m
+          labels:
+            severity: warning
+            slo: availability
+          annotations:
+            summary: "{{ $labels.service_name }} is slowly eroding its error budget"
+            description: "Sustained error ratio {{ $value | humanizePercentage }} above the 99.5% SLO."
+            runbook_url: https://github.com/CHANGE_ME/observability-lab/blob/main/docs/runbooks/slo-error-budget-burn.md
+            dashboard_url: http://localhost:3000/d/sre-command-center?var-service={{ $labels.service_name }}
+        - alert: SLOLatencyBudgetBurn
+          expr: |
+            slo:sli_latency_slow:ratio_rate1h > (14.4 * 0.01)
+            and
+            slo:sli_latency_slow:ratio_rate5m > (14.4 * 0.01)
+            and on (k8s_namespace_name, service_name)
+            service:requests:rate5m > 0.05
+          for: 5m
+          labels:
+            severity: warning
+            slo: latency
+          annotations:
+            summary: "{{ $labels.service_name }} latency SLO at risk"
+            description: "{{ $value | humanizePercentage }} of requests are slower than 500 ms (objective: ≤ 1%)."
+            runbook_url: https://github.com/CHANGE_ME/observability-lab/blob/main/docs/runbooks/slo-latency.md
+            dashboard_url: http://localhost:3000/d/sre-command-center?var-service={{ $labels.service_name }}

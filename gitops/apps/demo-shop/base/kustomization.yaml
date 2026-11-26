@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: demo
+resources:
+  - namespace.yaml
+  - frontend.yaml
+  - orders.yaml
+  - payments.yaml
+  - loadgen.yaml
+# CI (.github/workflows/demo-shop-ci.yaml) bumps newTag on every merge to main.
+images:
+  - name: docker.io/CHANGE_ME/demo-shop
+    newTag: 0.1.0

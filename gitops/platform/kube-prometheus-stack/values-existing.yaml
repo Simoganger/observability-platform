@@ -1,0 +1,11 @@
+# Brownfield cluster. If you ALREADY run the Prometheus Operator, set
+# crds.enabled=false and prometheusOperator.enabled=false here, and keep the
+# *SelectorNilUsesHelmValues=false settings so your existing ServiceMonitors are scraped.
+# Managed control planes (EKS/GKE/AKS) cannot be scraped:
+kubeEtcd: { enabled: false }
+kubeControllerManager: { enabled: false }
+kubeScheduler: { enabled: false }
+prometheus:
+  prometheusSpec:
+    externalLabels:
+      cluster: CHANGE_ME

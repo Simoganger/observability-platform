@@ -1,0 +1,16 @@
+# tempo-distributed with local backend is NOT supported — point at your bucket.
+# Copy the storage block from values-eks.yaml (S3) or values-gke.yaml (GCS).
+fullnameOverride: tempo
+reportingEnabled: false
+storage:
+  trace:
+    backend: s3
+    s3:
+      bucket: CHANGE_ME
+      endpoint: CHANGE_ME
+traces:
+  otlp:
+    grpc: { enabled: true }
+    http: { enabled: true }
+metaMonitoring:
+  serviceMonitor: { enabled: true }

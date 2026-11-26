@@ -1,0 +1,69 @@
+# =============================================================================
+# Recording rules behind the EXECUTIVE dashboard: incidents, delivery (DORA),
+# cost (OpenCost) and capacity. Pre-computing keeps the dashboard instant
+# and makes the KPI definitions reviewable in Git.
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: business-kpis
+  labels:
+    team: sre
+spec:
+  groups:
+    - name: kpi-incidents
+      interval: 1m
+      rules:
+        # Number of distinct critical alert groups firing right now (≈ open P1/P2 incidents).
+        - record: platform:incidents_open:count
+          expr: |
+            count(count by (alertname, namespace, service_name) (ALERTS{alertstate="firing", severity="critical"})) or vector(0)
+        # 1 while at least one critical alert fires → integrate for "time in incident".
+        - record: platform:incident_active:bool
+          expr: platform:incidents_open:count > bool 0
+
+    - name: kpi-delivery
+      interval: 5m
+      rules:
+        - record: platform:deployments:increase1d
+          expr: sum(increase(argocd_app_sync_total{phase="Succeeded"}[1d])) or vector(0)
+        - record: platform:deployments_failed:increase1d
+          expr: sum(increase(argocd_app_sync_total{phase=~"Error|Failed"}[1d])) or vector(0)
+
+    - name: kpi-cost
+      interval: 5m
+      rules:
+        # $/month at current run-rate (730 h/month).
+        - record: platform:cluster_cost:monthly
+          expr: sum(node_total_hourly_cost) * 730
+        - record: namespace:cost_compute:monthly
+          expr: |
+            (
+              sum by (namespace) (container_cpu_allocation * on (node) group_left() max by (node) (node_cpu_hourly_cost))
+              +
+              sum by (namespace) (container_memory_allocation_bytes / 1024 / 1024 / 1024 * on (node) group_left() max by (node) (node_ram_hourly_cost))
+            ) * 730
+        # Share of paid capacity that no workload has requested.
+        - record: platform:cost_idle:ratio
+          expr: |
+            clamp_min(1 - sum(namespace:cost_compute:monthly) / platform:cluster_cost:monthly, 0)
+
+    - name: kpi-capacity
+      interval: 1m
+      rules:
+        - record: cluster:cpu_requests:ratio
+          expr: |
+            sum(kube_pod_container_resource_requests{resource="cpu"} * on (namespace, pod) group_left() max by (namespace, pod) (kube_pod_status_phase{phase=~"Running|Pending"}))
+            / sum(kube_node_status_allocatable{resource="cpu"})
+        - record: cluster:memory_requests:ratio
+          expr: |
+            sum(kube_pod_container_resource_requests{resource="memory"} * on (namespace, pod) group_left() max by (namespace, pod) (kube_pod_status_phase{phase=~"Running|Pending"}))
+            / sum(kube_node_status_allocatable{resource="memory"})
+        - record: cluster:cpu_usage:ratio
+          expr: |
+            sum(rate(container_cpu_usage_seconds_total{container!="", image!=""}[5m]))
+            / sum(kube_node_status_allocatable{resource="cpu"})
+        - record: cluster:memory_usage:ratio
+          expr: |
+            sum(container_memory_working_set_bytes{container!="", image!=""})
+            / sum(kube_node_status_allocatable{resource="memory"})

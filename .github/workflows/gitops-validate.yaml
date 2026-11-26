@@ -1,0 +1,91 @@
+# Every PR touching GitOps/observability config is rendered and validated
+# with the SAME binaries that run in the cluster.
+name: GitOps validate
+
+on:
+  pull_request:
+    paths: ["gitops/**", "scripts/**", ".github/workflows/gitops-validate.yaml"]
+  push:
+    branches: [main]
+    paths: ["gitops/**", "scripts/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [kind, eks, gke, existing]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v4
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.12" }
+      - run: pip install pyyaml
+      - name: Render all Argo CD applications
+        run: python3 scripts/render.py ${{ matrix.env }} --strict
+      - name: kubeconform (k8s + CRD schemas)
+        run: |
+          docker run --rm -v "$PWD/build/${{ matrix.env }}:/m" ghcr.io/yannh/kubeconform:latest \
+            -kubernetes-version 1.34.0 -summary -strict -ignore-missing-schemas \
+            -skip CustomResourceDefinition \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' /m
+      - name: Validate OpenTelemetry collector configs
+        run: |
+          python3 - <<'PY'
+          import yaml, pathlib
+          out = pathlib.Path("build/otel"); out.mkdir(parents=True, exist_ok=True)
+          for app in ["otel-agent", "otel-gateway", "otel-cluster"]:
+              for doc in pathlib.Path(f"build/${{ matrix.env }}/{app}.yaml").read_text().split("\n---\n"):
+                  d = yaml.safe_load(doc)
+                  if d and d.get("kind") == "ConfigMap" and "relay" in d.get("data", {}):
+                      (out / f"{app}.yaml").write_text(d["data"]["relay"])
+          PY
+          for f in build/otel/*.yaml; do
+            echo "::group::$f"
+            docker run --rm --tmpfs /var/lib/otelcol -e MY_POD_IP=0.0.0.0 -e K8S_NODE_NAME=n \
+              -v "$PWD/$f:/c.yaml" otel/opentelemetry-collector-contrib:0.165.0 validate --config=/c.yaml
+            echo "::endgroup::"
+          done
+
+  rules-and-alerting:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v4
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.12" }
+      - run: pip install pyyaml
+      - name: promtool check rules
+        run: |
+          mkdir -p build/rules
+          python3 - <<'PY'
+          import yaml, glob, pathlib
+          for f in glob.glob("gitops/observability-config/base/rules/*.yaml"):
+              d = yaml.safe_load(open(f))
+              pathlib.Path("build/rules", pathlib.Path(f).name).write_text(yaml.safe_dump({"groups": d["spec"]["groups"]}, sort_keys=False))
+          PY
+          docker run --rm --entrypoint promtool -v "$PWD/build/rules:/r" prom/prometheus:latest check rules /r/*.yaml
+      - name: amtool check-config
+        run: |
+          python3 scripts/render.py kind --strict >/dev/null
+          python3 - <<'PY'
+          import yaml, base64, pathlib
+          out = pathlib.Path("build/am"); out.mkdir(parents=True, exist_ok=True)
+          for doc in pathlib.Path("build/kind/kube-prometheus-stack.yaml").read_text().split("\n---\n"):
+              if "kind: Secret" in doc and "alertmanager.yaml" in doc:
+                  for k, v in yaml.safe_load(doc).get("data", {}).items():
+                      (out / k).write_bytes(base64.b64decode(v))
+          PY
+          docker run --rm --entrypoint amtool -v "$PWD/build/am:/etc/alertmanager/config" prom/alertmanager:latest \
+            check-config /etc/alertmanager/config/alertmanager.yaml
+      - name: Dashboards are valid & up to date
+        run: |
+          python3 scripts/generate-dashboards.py
+          for f in gitops/observability-config/base/dashboards/*.json; do jq -e '.uid and .title and (.panels|length>0)' "$f" >/dev/null; done
+          git diff --exit-code gitops/observability-config/base/dashboards || \
+            (echo "::error::Dashboards JSON is stale — run python3 scripts/generate-dashboards.py and commit"; exit 1)

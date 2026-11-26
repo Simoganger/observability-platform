@@ -1,0 +1,42 @@
+# EKS: Distributed mode on S3 with IRSA (role created by terraform/envs/eks).
+deploymentMode: Distributed
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::<ACCOUNT_ID>:role/eks-observability-loki   # terraform output loki_role_arn
+loki:
+  storage:
+    type: s3
+    bucketNames:
+      chunks: <PREFIX>-loki-chunks       # terraform output loki_bucket
+      ruler: <PREFIX>-loki-chunks
+    s3:
+      region: eu-west-1
+  schemaConfig:
+    configs:
+      - from: "2024-04-01"
+        store: tsdb
+        object_store: s3
+        schema: v13
+        index: { prefix: loki_index_, period: 24h }
+  compactor:
+    retention_enabled: true
+    delete_request_store: s3
+ingester:
+  replicas: 3
+  zoneAwareReplication: { enabled: true }
+  persistence: { enabled: true, size: 20Gi, storageClass: gp3 }
+distributor: { replicas: 3, maxUnavailable: 1 }
+querier: { replicas: 3, maxUnavailable: 1 }
+queryFrontend: { replicas: 2, maxUnavailable: 1 }
+queryScheduler: { replicas: 2 }
+indexGateway: { replicas: 2, maxUnavailable: 1 }
+compactor: { replicas: 1 }
+ruler: { enabled: false }
+patternIngester: { replicas: 1 }
+gateway: { replicas: 2 }
+singleBinary: { replicas: 0 }
+write: { replicas: 0 }
+read: { replicas: 0 }
+backend: { replicas: 0 }
+chunksCache: { enabled: true, allocatedMemory: 2048 }
+resultsCache: { enabled: true, allocatedMemory: 512 }

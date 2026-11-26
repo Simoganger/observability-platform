@@ -1,0 +1,8 @@
+config:
+  processors:
+    resourcedetection:
+      detectors: [env, system]
+    resource/cluster:
+      attributes:
+        - { key: k8s.cluster.name, value: CHANGE_ME, action: upsert }
+        - { key: deployment.environment.name, value: CHANGE_ME, action: upsert }

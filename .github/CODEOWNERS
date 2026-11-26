@@ -1,0 +1,4 @@
+# Platform/SRE team owns the platform; app teams own their app.
+/gitops/          @CHANGE_ME/sre
+/terraform/       @CHANGE_ME/sre
+/apps/demo-shop/  @CHANGE_ME/shop

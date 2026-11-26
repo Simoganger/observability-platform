@@ -1,0 +1,13 @@
+# kind has no cloud provider: price nodes with a custom on-demand rate card.
+opencost:
+  customPricing:
+    enabled: true
+    provider: custom
+    costModel:
+      description: Lab rate card (≈ m6i.large on-demand)
+      CPU: "0.031611"          # $/vCPU-hour
+      RAM: "0.004237"          # $/GiB-hour
+      storage: "0.00005479"    # $/GiB-hour
+      GPU: "0.95"
+      spotCPU: "0.006655"
+      spotRAM: "0.000892"

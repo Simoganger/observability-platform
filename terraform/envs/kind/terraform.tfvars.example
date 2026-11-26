@@ -1,0 +1,4 @@
+gitops_repo_url = "https://github.com/<your-github-user>/observability-lab.git"
+# gitops_repo_token   = "github_pat_..."   # only for a private repo
+# pagerduty_routing_key = "..."            # PagerDuty → Service → Integrations → Events API v2
+# slack_webhook_url     = "https://hooks.slack.com/services/..."
