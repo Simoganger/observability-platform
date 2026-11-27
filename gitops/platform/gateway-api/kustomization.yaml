@@ -1,0 +1,7 @@
+# Gateway API CRDs, standard channel — the implementation-neutral API that the
+# shared Gateway, its HTTPRoutes and cert-manager use. Installed once for every
+# provider (Istio ≥ 1.30 needs ≥ v1.5.1). Renovate bumps the release below.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.3/standard-install.yaml

@@ -1,6 +1,6 @@
 {{- $g := .Values.global -}}
 {{- range $name, $c := .Values.components }}
-{{- if $c.enabled }}
+{{- if include "root.enabled" (dict "c" $c "g" $g) }}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -48,6 +48,9 @@ spec:
       valueFiles:
         - values.yaml
         - values-{{ $g.env }}.yaml
+      parameters:
+        - name: global.gatewayProvider
+          value: {{ $g.gatewayProvider }}
   {{- else }}
   source:
     repoURL: {{ $g.repoURL }}

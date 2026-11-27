@@ -1,0 +1,32 @@
+{{- with .Values.localService }}
+{{- if .enabled }}
+{{- $ports := include "ingress.targetPorts" $ | fromYaml }}
+# Fixed-name entry point to the gateway pods, whatever the implementation.
+# externalTrafficPolicy Cluster: kind's host ports land on the control-plane
+# node, which runs no gateway pod.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .name }}
+spec:
+  type: {{ .type }}
+  {{- if ne .type "ClusterIP" }}
+  externalTrafficPolicy: Cluster
+  {{- end }}
+  selector:
+    {{- include "ingress.podSelector" $ | nindent 4 }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: {{ $ports.http }}
+      {{- with .nodePorts.http }}
+      nodePort: {{ . }}
+      {{- end }}
+    - name: https
+      port: 443
+      targetPort: {{ $ports.https }}
+      {{- with .nodePorts.https }}
+      nodePort: {{ . }}
+      {{- end }}
+{{- end }}
+{{- end }}

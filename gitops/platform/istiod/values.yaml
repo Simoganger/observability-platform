@@ -1,0 +1,13 @@
+# istiod — here ONLY the Gateway API controller (provider: istio). It provisions
+# one Envoy Deployment + Service per Gateway ("automated deployment"), tuned via
+# the ConfigMap that gitops/platform/ingress references from the Gateway.
+# No namespace is labelled istio-injection, so no workload gets a sidecar.
+autoscaleEnabled: false
+replicaCount: 1
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { memory: 1Gi }
+
+meshConfig:
+  accessLogFile: /dev/stdout      # gateway access logs → otel-agent → Loki
+  accessLogEncoding: JSON

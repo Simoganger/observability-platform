@@ -1,0 +1,30 @@
+{{- if eq (include "ingress.provider" .) "istio" }}
+{{- $i := .Values.infrastructure -}}
+# Istio "automated deployment" options: strategic-merge patches applied to the
+# Deployment and Service istiod creates for the Gateway (<gateway>-istio).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.gateway.name }}-gateway-options
+data:
+  deployment: |
+    spec:
+      replicas: {{ $i.replicas }}
+      template:
+        spec:
+          containers:
+            - name: istio-proxy
+              resources:
+                {{- toYaml $i.resources | nindent 16 }}
+  service: |
+    {{- with $i.serviceAnnotations }}
+    metadata:
+      annotations:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    spec:
+      type: {{ $i.serviceType }}
+      {{- with $i.externalTrafficPolicy }}
+      externalTrafficPolicy: {{ . }}
+      {{- end }}
+{{- end }}

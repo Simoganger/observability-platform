@@ -9,7 +9,7 @@ spec:
   description: Observability platform and the workloads it monitors
   {{- $repos := list .Values.global.repoURL }}
   {{- range $name, $c := .Values.components }}
-  {{- if and $c.enabled $c.chart }}
+  {{- if and (include "root.enabled" (dict "c" $c "g" $.Values.global)) $c.chart }}
   {{- $repos = append $repos $c.chart.repoURL }}
   {{- end }}
   {{- end }}

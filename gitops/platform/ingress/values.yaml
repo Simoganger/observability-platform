@@ -1,23 +1,39 @@
 # Every exposed UI is https://<name>.<domain>. Override `domain` per environment.
 domain: example.com
 
+global:
+  # Set by the root app from its global.gatewayProvider (gitops/root/values.yaml):
+  #   istio    → istiod programs the Gateway (default)
+  #   envoy    → Envoy Gateway programs it
+  #   external → a controller you already run (GKE Gateway, AWS LBC, Cilium…);
+  #              set gateway.className, and localService.selector if you enable it
+  gatewayProvider: istio
+
 gateway:
   name: platform
-  className: envoy
+  className: ""            # "" → istio: istio · envoy: envoy · external: required
 
-# Data-plane Service in front of Envoy. Its fixed name lets in-cluster clients
-# resolve the public hostnames to it (kind: CoreDNS rewrite in terraform/envs/kind).
-envoy:
-  serviceName: platform-gateway
+# The data plane the implementation creates for this Gateway (Deployment + Service).
+# Rendered as Istio's options ConfigMap or Envoy's EnvoyProxy; ignored by `external`.
+infrastructure:
+  replicas: 2
   serviceType: LoadBalancer
   serviceAnnotations: {}
-  # Envoy Gateway defaults to Local (keeps client IPs; only nodes running Envoy answer).
-  externalTrafficPolicy: ""
-  nodePorts: {}            # kind: { http: 30080, https: 30443 }
-  replicas: 2
+  externalTrafficPolicy: ""     # "" = the implementation's default
   resources:
     requests: { cpu: 50m, memory: 64Mi }
     limits: { memory: 512Mi }
+
+# Provider-neutral Service in front of the gateway pods, with a FIXED name.
+# kind: host ports 80/443 map to its node ports and CoreDNS points the public
+# hostnames at it (terraform/envs/kind). Unneeded behind a cloud load balancer.
+localService:
+  enabled: false
+  name: platform-gateway
+  type: NodePort
+  nodePorts: { http: 30080, https: 30443 }
+  selector: {}       # {} → the selected provider's gateway-pod labels
+  targetPorts: {}    # {} → the selected provider's listener ports
 
 # ClusterIssuer that signs every listener certificate.
 #   acme       → Let's Encrypt, HTTP-01 through the Gateway (needs public DNS)

@@ -1,0 +1,8 @@
+# Production: two control-plane replicas spread over nodes.
+replicaCount: 2
+autoscaleEnabled: true
+autoscaleMin: 2
+autoscaleMax: 5
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { memory: 2Gi }

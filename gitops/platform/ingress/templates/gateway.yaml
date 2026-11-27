@@ -1,54 +1,7 @@
 {{- $v := .Values -}}
-apiVersion: gateway.envoyproxy.io/v1alpha1
-kind: EnvoyProxy
-metadata:
-  name: {{ $v.gateway.name }}
-spec:
-  provider:
-    type: Kubernetes
-    kubernetes:
-      envoyDeployment:
-        replicas: {{ $v.envoy.replicas }}
-        container:
-          resources:
-            {{- toYaml $v.envoy.resources | nindent 12 }}
-      envoyService:
-        name: {{ $v.envoy.serviceName }}
-        type: {{ $v.envoy.serviceType }}
-        {{- with $v.envoy.externalTrafficPolicy }}
-        externalTrafficPolicy: {{ . }}
-        {{- end }}
-        {{- with $v.envoy.serviceAnnotations }}
-        annotations:
-          {{- toYaml . | nindent 10 }}
-        {{- end }}
-        {{- with $v.envoy.nodePorts }}
-        # Fixed node ports so kind can map host :80/:443 onto them.
-        patch:
-          type: StrategicMerge
-          value:
-            spec:
-              ports:
-                {{- with .http }}
-                - { port: 80, nodePort: {{ . }} }
-                {{- end }}
-                {{- with .https }}
-                - { port: 443, nodePort: {{ . }} }
-                {{- end }}
-        {{- end }}
----
-apiVersion: gateway.networking.k8s.io/v1
-kind: GatewayClass
-metadata:
-  name: {{ $v.gateway.className }}
-spec:
-  controllerName: gateway.envoyproxy.io/gatewayclass-controller
-  parametersRef:
-    group: gateway.envoyproxy.io
-    kind: EnvoyProxy
-    name: {{ $v.gateway.name }}
-    namespace: {{ .Release.Namespace }}
----
+{{- $p := include "ingress.provider" . -}}
+# Plain Gateway API — identical for every implementation except className and
+# the (standard) infrastructure.parametersRef to the provider's tuning object.
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
@@ -57,7 +10,20 @@ metadata:
     # cert-manager's gateway-shim creates one Certificate per HTTPS listener.
     cert-manager.io/cluster-issuer: {{ $v.issuer.name }}
 spec:
-  gatewayClassName: {{ $v.gateway.className }}
+  gatewayClassName: {{ include "ingress.className" . }}
+  {{- if eq $p "istio" }}
+  infrastructure:
+    parametersRef:
+      group: ""
+      kind: ConfigMap
+      name: {{ $v.gateway.name }}-gateway-options
+  {{- else if eq $p "envoy" }}
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: {{ $v.gateway.name }}
+  {{- end }}
   listeners:
     # Plain HTTP only redirects to HTTPS (and serves ACME HTTP-01 challenges).
     - name: http

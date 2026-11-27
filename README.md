@@ -80,7 +80,7 @@ flowchart LR
 | Alerting / incidents | **Alertmanager** → **PagerDuty** + **Slack** | Graduated | Routing, grouping, inhibition, runbook links |
 | FinOps | **OpenCost** | Incubating | Cost per namespace / idle spend for stakeholders |
 | Commercial (optional) | **Datadog** (Operator + OTel exporter) | — | Toggle on to dual-ship; no lock-in |
-| Ingress & TLS | **Envoy Gateway** (Gateway API) + **cert-manager** | Graduated (cert-manager), Envoy | One HTTPS entry point; Let's Encrypt in the cloud, lab CA on kind |
+| Ingress & TLS | **Gateway API** via **Istio** (pluggable: Envoy Gateway, GKE/AWS controllers) + **cert-manager** | Graduated | One HTTPS entry point; Let's Encrypt in the cloud, lab CA on kind |
 | Single sign-on | **Keycloak** (OIDC) → Grafana + Argo CD | Incubating | Groups → roles: `sre-team` = admin, `stakeholders` = viewer |
 
 Why these choices and what the alternatives were (Jaeger, Fluent Bit, Thanos/Mimir, Elastic, Opsgenie…): [docs/adr/0001-technology-choices.md](docs/adr/0001-technology-choices.md).
@@ -173,6 +173,6 @@ scripts/                      render, dashboards-as-code, secrets, port-forward,
 - [x] Every alert carries `runbook_url` + `dashboard_url`; critical alerts page, warnings go to Slack
 - [x] CI renders every environment and validates it with the real binaries (kubeconform, otelcol, promtool, amtool)
 - [x] SSO for Grafana and Argo CD through Keycloak (OIDC), group → role mapping, break-glass local admins ([docs/sso.md](docs/sso.md))
-- [x] Gateway API ingress (Envoy Gateway) with TLS from cert-manager; unauthenticated UIs (Prometheus, Alertmanager) stay internal
+- [x] Gateway API ingress (Istio by default, pluggable) with TLS from cert-manager; unauthenticated UIs (Prometheus, Alertmanager) stay internal
 - [ ] Your domain + DNS, and PostgreSQL for Keycloak in the cloud ([docs/sso.md](docs/sso.md#eks--gke))
 - [ ] Long-term metrics (Thanos / Mimir / managed Prometheus remote-write — see `values-eks.yaml`)

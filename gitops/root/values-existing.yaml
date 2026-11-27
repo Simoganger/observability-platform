@@ -8,6 +8,14 @@ components:
     enabled: false
   # Brownfield clusters bring their own ingress, certificates and identity provider.
   # Enable any of these if yours lacks them; SSO against your IdP: docs/sso.md.
+  gateway-api:
+    enabled: false
+  istio-base:
+    enabled: false
+  istiod:
+    enabled: false
+  envoy-gateway-crds:
+    enabled: false
   envoy-gateway:
     enabled: false
   cert-manager:

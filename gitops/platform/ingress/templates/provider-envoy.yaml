@@ -1,0 +1,33 @@
+{{- if eq (include "ingress.provider" .) "envoy" }}
+{{- $i := .Values.infrastructure -}}
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: {{ include "ingress.className" . }}
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+---
+# Envoy Gateway's data-plane settings, referenced from the Gateway.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: {{ .Values.gateway.name }}
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyDeployment:
+        replicas: {{ $i.replicas }}
+        container:
+          resources:
+            {{- toYaml $i.resources | nindent 12 }}
+      envoyService:
+        type: {{ $i.serviceType }}
+        {{- with $i.externalTrafficPolicy }}
+        externalTrafficPolicy: {{ . }}
+        {{- end }}
+        {{- with $i.serviceAnnotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+{{- end }}

@@ -1,0 +1,7 @@
+# Envoy Gateway's own CRDs (EnvoyProxy, policies…) — provider: envoy.
+# The Gateway API CRDs come from the shared gateway-api component.
+crds:
+  gatewayAPI:
+    enabled: false
+  envoyGateway:
+    enabled: true

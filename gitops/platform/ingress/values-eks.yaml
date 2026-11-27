@@ -1,8 +1,8 @@
-# EKS: an internet-facing NLB in front of Envoy. Point a wildcard DNS record
-# (*.example.com) at the NLB hostname, then certificates issue automatically.
+# EKS: an internet-facing NLB in front of the gateway. Point a wildcard DNS
+# record (*.example.com) at the NLB hostname, then certificates issue automatically.
 domain: example.com
 
-envoy:
+infrastructure:
   serviceAnnotations:
     service.beta.kubernetes.io/aws-load-balancer-type: nlb
     service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing

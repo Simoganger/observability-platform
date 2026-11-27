@@ -43,6 +43,18 @@
       "depNameTemplate": "argo-cd",
       "registryUrlTemplate": "https://argoproj.github.io/argo-helm",
       "datasourceTemplate": "helm"
+    },
+    {
+      "customType": "regex",
+      "description": "Gateway API CRDs release (gitops/platform/gateway-api)",
+      "managerFilePatterns": [
+        "/^gitops/platform/gateway-api/kustomization\\.yaml$/"
+      ],
+      "matchStrings": [
+        "github\\.com/kubernetes-sigs/gateway-api/releases/download/(?<currentValue>v[\\d.]+)/"
+      ],
+      "depNameTemplate": "kubernetes-sigs/gateway-api",
+      "datasourceTemplate": "github-releases"
     }
   ],
   "packageRules": [

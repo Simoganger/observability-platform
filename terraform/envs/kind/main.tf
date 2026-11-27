@@ -42,7 +42,7 @@ resource "kind_cluster" "this" {
       role                   = "control-plane"
       kubeadm_config_patches = local.control_plane_patches
 
-      # Host :80/:443 → the Envoy gateway's fixed node ports (gitops/platform/ingress/values-kind.yaml).
+      # Host :80/:443 → the provider-neutral platform-gateway Service (gitops/platform/ingress, localService).
       extra_port_mappings {
         container_port = 30080
         host_port      = 80
@@ -83,7 +83,7 @@ resource "kubernetes_config_map_v1_data" "coredns" {
              lameduck 5s
           }
           ready
-          rewrite stop name regex ^[^.]+\.${replace(var.domain, ".", "\\.")}\.$ platform-gateway.envoy-gateway-system.svc.cluster.local. answer auto
+          rewrite stop name regex ^[^.]+\.${replace(var.domain, ".", "\\.")}\.$ platform-gateway.gateway.svc.cluster.local. answer auto
           kubernetes cluster.local in-addr.arpa ip6.arpa {
              pods insecure
              fallthrough in-addr.arpa ip6.arpa

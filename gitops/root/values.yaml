@@ -13,6 +13,8 @@ global:
   project: observability
   # Namespace that hosts the whole telemetry stack
   namespace: observability
+  # Gateway API implementation behind the shared Gateway: istio | envoy | external
+  gatewayProvider: istio
 
 # Default sync policy applied to every Application.
 syncPolicy:
@@ -39,19 +41,75 @@ components:
     syncPolicy: { automated: { prune: false, selfHeal: true } }
 
   # ------------------------------------------- Ingress, TLS & identity ---
-  # Gateway API implementation (CNCF). Also installs the Gateway API CRDs.
-  # OCI chart: Argo CD expects the registry path WITHOUT the oci:// scheme.
+  # The shared Gateway is plain Gateway API; WHICH implementation programs it is
+  # chosen by global.gatewayProvider. Components with `gatewayProvider:` are only
+  # rendered for that provider. See docs/sso.md → "Gateway implementation".
+
+  # Gateway API CRDs (standard channel), shared by every implementation.
+  gateway-api:
+    enabled: true
+    wave: -8
+    namespace: gateway             # CRDs are cluster-scoped; this creates the Gateway's namespace early
+    path: gitops/platform/gateway-api
+    pathIsFlat: true
+    syncOptions: [ServerSideApply=true]   # CRDs exceed the client-side annotation limit
+
+  # --- provider: istio (default) — istiod is used ONLY as the Gateway controller;
+  # no namespace is labelled for sidecar injection.
+  istio-base:
+    enabled: true
+    gatewayProvider: istio
+    wave: -7
+    namespace: istio-system
+    releaseName: istio-base
+    chart: { repoURL: https://istio-release.storage.googleapis.com/charts, name: base, version: 1.30.8 }
+    valuesDir: gitops/platform/istio-base
+    syncOptions: [ServerSideApply=true, RespectIgnoreDifferences=true]
+    ignoreDifferences: &istioWebhookDrift   # istiod patches its webhooks at runtime
+      - group: admissionregistration.k8s.io
+        kind: ValidatingWebhookConfiguration
+        jqPathExpressions: [".webhooks[]?.clientConfig.caBundle", ".webhooks[]?.failurePolicy"]
+      - group: admissionregistration.k8s.io
+        kind: MutatingWebhookConfiguration
+        jqPathExpressions: [".webhooks[]?.clientConfig.caBundle"]
+  istiod:
+    enabled: true
+    gatewayProvider: istio
+    wave: -6
+    namespace: istio-system
+    releaseName: istiod
+    chart: { repoURL: https://istio-release.storage.googleapis.com/charts, name: istiod, version: 1.30.8 }
+    valuesDir: gitops/platform/istiod
+    syncOptions: [ServerSideApply=true, RespectIgnoreDifferences=true]
+    ignoreDifferences: *istioWebhookDrift
+
+  # --- provider: envoy — Envoy Gateway. Its own CRDs only; Gateway API CRDs come
+  # from the gateway-api component above. OCI charts: Argo CD expects the
+  # registry path WITHOUT the oci:// scheme.
+  envoy-gateway-crds:
+    enabled: true
+    gatewayProvider: envoy
+    wave: -7
+    namespace: envoy-gateway-system
+    releaseName: envoy-gateway-crds
+    chart: { repoURL: docker.io/envoyproxy, name: gateway-crds-helm, version: 1.10.0 }
+    valuesDir: gitops/platform/envoy-gateway-crds
+    syncOptions: [ServerSideApply=true]
   envoy-gateway:
     enabled: true
+    gatewayProvider: envoy
     wave: -6
     namespace: envoy-gateway-system
     releaseName: envoy-gateway
     chart: { repoURL: docker.io/envoyproxy, name: gateway-helm, version: 1.10.0 }
     valuesDir: gitops/platform/envoy-gateway
-    syncOptions: [ServerSideApply=true]   # CRDs exceed the client-side annotation limit
+    syncOptions: [ServerSideApply=true]
+
+  # --- provider: external — nothing installed; a controller that already exists
+  # (GKE Gateway, AWS Load Balancer Controller, Cilium…) programs the Gateway.
 
   # Certificates for every Gateway listener (Let's Encrypt in the cloud, a lab CA on kind).
-  # After envoy-gateway: its Gateway API support needs the Gateway API CRDs at start-up.
+  # After gateway-api: its Gateway API support needs the CRDs at start-up.
   cert-manager:
     enabled: true
     wave: -5
@@ -65,8 +123,8 @@ components:
   ingress:
     enabled: true
     wave: -4
-    namespace: envoy-gateway-system
-    chartPath: gitops/platform/ingress
+    namespace: gateway
+    chartPath: gitops/platform/ingress   # receives global.gatewayProvider
 
   # Identity provider for single sign-on into Grafana and Argo CD.
   # Wave 1: its ServiceMonitor needs the Prometheus Operator CRDs.

@@ -71,6 +71,8 @@ def main() -> int:
                     path = ROOT / src["path"] / vf
                     if path.exists():
                         cmd += ["-f", str(path)]
+                for param in src["helm"].get("parameters", []):
+                    cmd += ["--set", f"{param['name']}={param['value']}"]
                 rendered = run(cmd)
             else:
                 rendered = run(["kubectl", "kustomize", spec["source"]["path"]])

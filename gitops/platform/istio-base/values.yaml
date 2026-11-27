@@ -1,0 +1,2 @@
+# Istio CRDs and cluster-wide RBAC (provider: istio). Defaults are fine.
+defaultRevision: default

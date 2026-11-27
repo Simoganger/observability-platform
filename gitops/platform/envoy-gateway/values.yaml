@@ -1,5 +1,8 @@
-# Envoy Gateway — Gateway API controller. The Gateway itself, its EnvoyProxy
-# settings and the HTTPRoutes live in gitops/platform/ingress.
+# Envoy Gateway — Gateway API controller (provider: envoy). The Gateway, its
+# EnvoyProxy settings and the HTTPRoutes live in gitops/platform/ingress.
+crds:
+  enabled: false          # envoy-gateway-crds + gateway-api components own them
+
 deployment:
   envoyGateway:
     resources:
@@ -8,6 +11,13 @@ deployment:
 
 config:
   envoyGateway:
+    provider:
+      type: Kubernetes
+      kubernetes:
+        # Run each Gateway's Envoy pods in the Gateway's namespace (like Istio),
+        # so the provider-neutral platform-gateway Service can select them.
+        deploy:
+          type: GatewayNamespace
     logging:
       level:
         default: info
