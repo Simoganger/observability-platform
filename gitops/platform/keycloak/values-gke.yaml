@@ -1,0 +1,22 @@
+# GKE: production mode, 2 replicas clustered through the database (jdbc-ping),
+# backed by PostgreSQL (e.g. Cloud SQL for PostgreSQL). Create keycloak/keycloak-db first:
+# terraform var `keycloak_database` (terraform/envs/gke) or kubectl, see docs/sso.md.
+observability:
+  domain: example.com
+
+replicas: 2
+podDisruptionBudget:
+  minAvailable: 1
+
+database:
+  vendor: postgres
+
+extraEnvFrom: |
+  - secretRef:
+      name: keycloak-secrets
+  - secretRef:
+      name: keycloak-db
+
+resources:
+  requests: { cpu: 250m, memory: 1Gi }
+  limits: { memory: 2Gi }

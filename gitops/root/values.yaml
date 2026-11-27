@@ -38,6 +38,46 @@ components:
     # Argo CD must never prune itself.
     syncPolicy: { automated: { prune: false, selfHeal: true } }
 
+  # ------------------------------------------- Ingress, TLS & identity ---
+  # Gateway API implementation (CNCF). Also installs the Gateway API CRDs.
+  # OCI chart: Argo CD expects the registry path WITHOUT the oci:// scheme.
+  envoy-gateway:
+    enabled: true
+    wave: -6
+    namespace: envoy-gateway-system
+    releaseName: envoy-gateway
+    chart: { repoURL: docker.io/envoyproxy, name: gateway-helm, version: 1.10.0 }
+    valuesDir: gitops/platform/envoy-gateway
+    syncOptions: [ServerSideApply=true]   # CRDs exceed the client-side annotation limit
+
+  # Certificates for every Gateway listener (Let's Encrypt in the cloud, a lab CA on kind).
+  # After envoy-gateway: its Gateway API support needs the Gateway API CRDs at start-up.
+  cert-manager:
+    enabled: true
+    wave: -5
+    namespace: cert-manager
+    releaseName: cert-manager
+    chart: { repoURL: https://charts.jetstack.io, name: cert-manager, version: v1.21.3 }
+    valuesDir: gitops/platform/cert-manager
+    syncOptions: [ServerSideApply=true]
+
+  # The shared Gateway, its TLS issuer and one HTTPRoute per exposed UI (local chart).
+  ingress:
+    enabled: true
+    wave: -4
+    namespace: envoy-gateway-system
+    chartPath: gitops/platform/ingress
+
+  # Identity provider for single sign-on into Grafana and Argo CD.
+  # Wave 1: its ServiceMonitor needs the Prometheus Operator CRDs.
+  keycloak:
+    enabled: true
+    wave: 1
+    namespace: keycloak
+    releaseName: keycloak
+    chart: { repoURL: https://codecentric.github.io/helm-charts, name: keycloakx, version: 7.4.0 }
+    valuesDir: gitops/platform/keycloak
+
   # --------------------------------------------------------------- Metrics ---
   kube-prometheus-stack:
     enabled: true

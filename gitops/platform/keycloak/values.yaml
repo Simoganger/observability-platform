@@ -1,0 +1,140 @@
+# Keycloak — the identity provider behind Grafana and Argo CD single sign-on.
+# Docs: docs/sso.md.  Public URL: https://keycloak.<domain>
+#
+# Secrets (never in Git, created by Terraform / scripts/create-secrets.sh):
+#   keycloak/keycloak-secrets  KC_BOOTSTRAP_ADMIN_USERNAME, KC_BOOTSTRAP_ADMIN_PASSWORD,
+#                              GRAFANA_CLIENT_SECRET, ARGOCD_CLIENT_SECRET, DEMO_USER_PASSWORD
+#   keycloak/keycloak-db       KC_DB_URL_HOST, KC_DB_URL_DATABASE, KC_DB_USERNAME, KC_DB_PASSWORD
+#                              (production mode only: eks / gke)
+fullnameOverride: keycloak
+
+# Platform settings consumed by the templates below (not chart keys).
+observability:
+  domain: example.com
+
+command: ["/opt/keycloak/bin/kc.sh"]
+# --import-realm creates the realm below on first start and NEVER overwrites an
+# existing one: later realm changes go through the admin console (or a re-import).
+args: ["start", "--import-realm"]
+
+http:
+  relativePath: /
+
+# Envoy terminates TLS and sets X-Forwarded-*.
+proxy:
+  enabled: true
+  mode: xforwarded
+  http:
+    enabled: true
+
+extraEnv: |
+  - name: KC_HOSTNAME
+    value: https://keycloak.{{ .Values.observability.domain }}
+  # Substituted into the realm file at import time (${OBS_DOMAIN}).
+  - name: OBS_DOMAIN
+    value: {{ .Values.observability.domain }}
+  - name: JAVA_OPTS_APPEND
+    value: -XX:MaxRAMPercentage=70
+
+extraEnvFrom: |
+  - secretRef:
+      name: keycloak-secrets
+
+extraVolumes: |
+  - name: realm
+    configMap:
+      name: keycloak-realm
+extraVolumeMounts: |
+  - name: realm
+    mountPath: /opt/keycloak/data/import
+    readOnly: true
+
+podAnnotations:
+  checksum/realm: '{{ toJson .Values.realm | cat (toJson .Values.demoUsers) | sha256sum }}'
+
+resources:
+  requests: { cpu: 100m, memory: 512Mi }
+  limits: { memory: 1Gi }
+
+serviceMonitor:
+  enabled: true
+
+# ----------------------------------------------------------------- realm ---
+# Imported as JSON. ${VAR} placeholders are resolved by Keycloak from its
+# environment at import time, so no secret ever lands in Git or the ConfigMap.
+realm:
+  realm: observability
+  displayName: Observability Platform
+  enabled: true
+  sslRequired: external
+  registrationAllowed: false
+  resetPasswordAllowed: false
+  loginWithEmailAllowed: true
+  duplicateEmailsAllowed: false
+  bruteForceProtected: true
+  accessTokenLifespan: 300
+  ssoSessionIdleTimeout: 28800        # 8 h, one working day
+  # Groups map 1:1 to platform roles:
+  #   sre-team     → Grafana Admin,  Argo CD role:admin
+  #   stakeholders → Grafana Viewer, Argo CD role:readonly
+  # Anyone in neither group is refused by Grafana (role_attribute_strict).
+  groups:
+    - name: sre-team
+    - name: stakeholders
+  clients:
+    - clientId: grafana
+      name: Grafana
+      enabled: true
+      protocol: openid-connect
+      publicClient: false
+      clientAuthenticatorType: client-secret
+      secret: "${GRAFANA_CLIENT_SECRET}"
+      standardFlowEnabled: true
+      directAccessGrantsEnabled: false
+      rootUrl: "https://grafana.${OBS_DOMAIN}"
+      redirectUris: ["https://grafana.${OBS_DOMAIN}/login/generic_oauth"]
+      webOrigins: ["+"]
+      attributes:
+        pkce.code.challenge.method: S256
+        post.logout.redirect.uris: "https://grafana.${OBS_DOMAIN}/login"
+      protocolMappers: &groupsMapper
+        - name: groups
+          protocol: openid-connect
+          protocolMapper: oidc-group-membership-mapper
+          config:
+            claim.name: groups
+            full.path: "false"
+            id.token.claim: "true"
+            access.token.claim: "true"
+            userinfo.token.claim: "true"
+    - clientId: argocd
+      name: Argo CD
+      enabled: true
+      protocol: openid-connect
+      publicClient: false
+      clientAuthenticatorType: client-secret
+      secret: "${ARGOCD_CLIENT_SECRET}"
+      standardFlowEnabled: true
+      directAccessGrantsEnabled: false
+      rootUrl: "https://argocd.${OBS_DOMAIN}"
+      redirectUris: ["https://argocd.${OBS_DOMAIN}/auth/callback"]
+      webOrigins: ["+"]
+      attributes:
+        post.logout.redirect.uris: "https://argocd.${OBS_DOMAIN}/*"
+      protocolMappers: *groupsMapper
+
+# Seeded users (kind only). In production, federate users from your directory
+# (LDAP/AD) or an upstream IdP (Entra ID, Google) instead: docs/sso.md.
+demoUsers: []
+
+extraManifests:
+  - |
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: keycloak-realm
+    data:
+      observability-realm.json: |
+        {{- $realm := deepCopy .Values.realm }}
+        {{- $_ := set $realm "users" .Values.demoUsers }}
+        {{- toPrettyJson $realm | nindent 4 }}

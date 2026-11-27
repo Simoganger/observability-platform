@@ -68,3 +68,21 @@ variable "slack_webhook_url" {
   default     = "https://hooks.slack.com/services/REPLACE/ME/PLEASE"
   sensitive   = true
 }
+
+variable "sso_enabled" {
+  description = "Create the keycloak namespace and the SSO client secrets (Keycloak, Grafana, Argo CD)."
+  type        = bool
+  default     = true
+}
+
+variable "keycloak_database" {
+  description = "PostgreSQL for Keycloak in production mode (eks / gke). null = no keycloak-db secret."
+  type = object({
+    host     = string
+    database = string
+    username = string
+    password = string
+  })
+  default   = null
+  sensitive = true
+}

@@ -1,27 +1,65 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended", ":dependencyDashboard"],
-  "labels": ["dependencies"],
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard"
+  ],
+  "labels": [
+    "dependencies"
+  ],
   "customManagers": [
     {
       "customType": "regex",
       "description": "Helm charts in the Argo CD component catalog",
-      "managerFilePatterns": ["/^gitops/root/values.*\\.yaml$/"],
-      "matchStrings": ["chart: \\{ repoURL: (?<registryUrl>\\S+), name: (?<depName>[\\w-]+), version: (?<currentValue>[\\w.\\-]+) \\}"],
+      "managerFilePatterns": [
+        "/^gitops/root/values.*\\.yaml$/"
+      ],
+      "matchStrings": [
+        "chart: \\{ repoURL: (?<registryUrl>https://\\S+), name: (?<depName>[\\w-]+), version: (?<currentValue>[\\w.\\-]+) \\}"
+      ],
       "datasourceTemplate": "helm"
     },
     {
       "customType": "regex",
+      "description": "OCI Helm charts in the Argo CD component catalog (repoURL without scheme)",
+      "managerFilePatterns": [
+        "/^gitops/root/values.*\\.yaml$/"
+      ],
+      "matchStrings": [
+        "chart: \\{ repoURL: (?<registry>[a-z0-9.-]+\\.[a-z]+/[\\w./-]+), name: (?<depName>[\\w-]+), version: (?<currentValue>[\\w.\\-]+) \\}"
+      ],
+      "packageNameTemplate": "{{{registry}}}/{{{depName}}}",
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
       "description": "Argo CD chart pinned in Terraform bootstrap",
-      "managerFilePatterns": ["/^terraform/modules/argocd-bootstrap/variables\\.tf$/"],
-      "matchStrings": ["argo-cd Helm chart version[^\\n]*\\n\\s*type\\s*=\\s*string\\n\\s*default\\s*=\\s*\"(?<currentValue>[^\"]+)\""],
+      "managerFilePatterns": [
+        "/^terraform/modules/argocd-bootstrap/variables\\.tf$/"
+      ],
+      "matchStrings": [
+        "argo-cd Helm chart version[^\\n]*\\n\\s*type\\s*=\\s*string\\n\\s*default\\s*=\\s*\"(?<currentValue>[^\"]+)\""
+      ],
       "depNameTemplate": "argo-cd",
       "registryUrlTemplate": "https://argoproj.github.io/argo-helm",
       "datasourceTemplate": "helm"
     }
   ],
   "packageRules": [
-    { "matchDatasources": ["helm"], "groupName": "observability charts", "schedule": ["before 6am on monday"] },
-    { "matchUpdateTypes": ["major"], "dependencyDashboardApproval": true }
+    {
+      "matchDatasources": [
+        "helm"
+      ],
+      "groupName": "observability charts",
+      "schedule": [
+        "before 6am on monday"
+      ]
+    },
+    {
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "dependencyDashboardApproval": true
+    }
   ]
 }

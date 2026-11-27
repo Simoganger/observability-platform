@@ -22,13 +22,17 @@ flowchart LR
 | Wave | Components |
 |---|---|
 | -10 | argocd (self-management) |
+| -6 | envoy-gateway (Gateway API CRDs + controller) |
+| -5 | cert-manager |
+| -4 | ingress (Gateway, ClusterIssuer, HTTPRoutes) |
 | 0 | kube-prometheus-stack (CRDs, Prometheus, Alertmanager, Grafana) |
-| 1 | loki, tempo, otel-operator |
+| 1 | loki, tempo, otel-operator, keycloak |
 | 2 | otel-gateway, opencost |
 | 3 | otel-agent, otel-cluster |
 | 4 | observability-config (dashboards, rules, datasources, Instrumentation) |
 | 5 | demo-shop |
 
+* **Access.** Grafana, Argo CD and Keycloak are published on one Envoy Gateway (`https://<app>.<domain>`, TLS from cert-manager). Grafana and Argo CD use Keycloak for single sign-on, and Keycloak groups map to their roles. See [sso.md](sso.md).
 * **CI never talks to the cluster.** It changes Git, and Argo CD reconciles. Every deployment is therefore a Git commit, which gives an audit trail and `git revert` rollback. Argo CD sync metrics feed the DORA panels.
 
 ## 2. Telemetry flow

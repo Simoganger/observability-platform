@@ -56,9 +56,13 @@ jobs:
           curl -sfG 'localhost:3100/loki/api/v1/query_range' --data-urlencode 'query={k8s_namespace_name="demo"}' | jq -e '.data.result | length > 0'
           curl -sfG 'localhost:3100/loki/api/v1/query_range' --data-urlencode 'query={service_name="k8s-events"}' | jq -e '.data.result | length > 0'
           curl -sf 'localhost:3200/api/search?limit=5' | jq -e '.traces | length > 0'
+      - name: Assert SSO (Gateway → Keycloak → Grafana / Argo CD roles)
+        run: scripts/sso-smoke-test.sh
       - name: Debug dump
         if: failure()
         run: |
           kubectl get pods -A
           kubectl -n argocd get applications -o yaml | grep -A10 "conditions:" || true
           kubectl get events -A --sort-by=.lastTimestamp | tail -50
+          kubectl get gateway,httproute,certificate -A || true
+          kubectl -n keycloak logs statefulset/keycloak --tail=100 || true

@@ -12,3 +12,9 @@ output "grafana_admin_password" {
   value     = module.bootstrap.grafana_admin_password
   sensitive = true
 }
+
+output "keycloak_admin_password" {
+  description = "Keycloak admin console (user: admin)."
+  value       = module.bootstrap.keycloak_admin_password
+  sensitive   = true
+}

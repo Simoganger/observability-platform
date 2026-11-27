@@ -26,4 +26,12 @@ kubeEtcd:
 grafana:
   grafana.ini:
     server:
-      root_url: http://localhost:3000
+      root_url: https://grafana.127.0.0.1.nip.io
+    auth.generic_oauth:
+      enabled: true
+      auth_url: https://keycloak.127.0.0.1.nip.io/realms/observability/protocol/openid-connect/auth
+      token_url: https://keycloak.127.0.0.1.nip.io/realms/observability/protocol/openid-connect/token
+      api_url: https://keycloak.127.0.0.1.nip.io/realms/observability/protocol/openid-connect/userinfo
+      signout_redirect_url: https://keycloak.127.0.0.1.nip.io/realms/observability/protocol/openid-connect/logout?client_id=grafana&post_logout_redirect_uri=https%3A%2F%2Fgrafana.127.0.0.1.nip.io%2Flogin
+      # kind only: the gateway certificate comes from a self-signed lab CA.
+      tls_skip_verify_insecure: true

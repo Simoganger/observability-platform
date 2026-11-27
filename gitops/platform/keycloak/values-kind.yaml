@@ -1,0 +1,25 @@
+# kind: dev mode with the embedded H2 database. Nothing persists across pod
+# restarts: the realm and demo users are re-imported from Git every start.
+observability:
+  domain: 127.0.0.1.nip.io
+
+args: ["start-dev", "--import-realm"]
+
+# Password for both users: `make sso-users`
+demoUsers:
+  - username: alice
+    email: alice@example.com
+    emailVerified: true
+    firstName: Alice
+    lastName: SRE
+    enabled: true
+    groups: [/sre-team]
+    credentials: [{ type: password, value: "${DEMO_USER_PASSWORD}", temporary: false }]
+  - username: bob
+    email: bob@example.com
+    emailVerified: true
+    firstName: Bob
+    lastName: Stakeholder
+    enabled: true
+    groups: [/stakeholders]
+    credentials: [{ type: password, value: "${DEMO_USER_PASSWORD}", temporary: false }]

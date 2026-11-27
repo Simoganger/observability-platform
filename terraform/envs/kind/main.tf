@@ -41,6 +41,18 @@ resource "kind_cluster" "this" {
     node {
       role                   = "control-plane"
       kubeadm_config_patches = local.control_plane_patches
+
+      # Host :80/:443 → the Envoy gateway's fixed node ports (gitops/platform/ingress/values-kind.yaml).
+      extra_port_mappings {
+        container_port = 30080
+        host_port      = 80
+        listen_address = "127.0.0.1"
+      }
+      extra_port_mappings {
+        container_port = 30443
+        host_port      = 443
+        listen_address = "127.0.0.1"
+      }
     }
 
     dynamic "node" {
@@ -50,6 +62,45 @@ resource "kind_cluster" "this" {
       }
     }
   }
+}
+
+# ----------------------------------------------------- in-cluster DNS ---
+# *.<domain> resolves to 127.0.0.1 — right for your browser, wrong inside a pod.
+# Grafana and Argo CD must reach Keycloak at the SAME public URL the browser
+# uses (OIDC issuer), so CoreDNS answers those names with the gateway Service.
+# This is kind's default Corefile plus the `rewrite` line.
+resource "kubernetes_config_map_v1_data" "coredns" {
+  metadata {
+    name      = "coredns"
+    namespace = "kube-system"
+  }
+  force = true
+  data = {
+    Corefile = <<-EOT
+      .:53 {
+          errors
+          health {
+             lameduck 5s
+          }
+          ready
+          rewrite stop name regex ^[^.]+\.${replace(var.domain, ".", "\\.")}\.$ platform-gateway.envoy-gateway-system.svc.cluster.local. answer auto
+          kubernetes cluster.local in-addr.arpa ip6.arpa {
+             pods insecure
+             fallthrough in-addr.arpa ip6.arpa
+             ttl 30
+          }
+          prometheus :9153
+          forward . /etc/resolv.conf {
+             max_concurrent 1000
+          }
+          cache 30
+          loop
+          reload
+          loadbalance
+      }
+    EOT
+  }
+  depends_on = [kind_cluster.this]
 }
 
 module "bootstrap" {

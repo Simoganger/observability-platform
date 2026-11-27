@@ -1,0 +1,15 @@
+# kind: nip.io resolves *.127.0.0.1.nip.io to 127.0.0.1 on your laptop; host
+# ports 80/443 map to the node ports below (terraform/envs/kind), and CoreDNS
+# rewrites the same names to the gateway Service inside the cluster.
+# Keep in sync with var.domain in terraform/envs/kind.
+domain: 127.0.0.1.nip.io
+
+envoy:
+  serviceType: NodePort
+  nodePorts: { http: 30080, https: 30443 }
+  # Host ports land on the control-plane node, which runs no Envoy pod.
+  externalTrafficPolicy: Cluster
+  replicas: 1
+
+issuer:
+  type: selfsigned

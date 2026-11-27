@@ -54,3 +54,15 @@ variable "slack_webhook_url" {
   default   = "https://hooks.slack.com/services/REPLACE/ME/PLEASE"
   sensitive = true
 }
+
+variable "keycloak_database" {
+  description = "PostgreSQL for Keycloak (host, database, username, password). Required for SSO: docs/sso.md."
+  type = object({
+    host     = string
+    database = string
+    username = string
+    password = string
+  })
+  default   = null
+  sensitive = true
+}

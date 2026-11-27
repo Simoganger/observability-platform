@@ -27,7 +27,12 @@ configs:
       - apiGroups: ["cilium.io"]
         kinds: ["CiliumIdentity"]
         clusters: ["*"]
+    # Local admin stays as break-glass access when the IdP is down.
+    # SSO (oidc.config) is set per environment in values-<env>.yaml: docs/sso.md.
+    admin.enabled: true
   rbac:
+    # Keycloak `groups` claim → Argo CD roles.
+    scopes: "[groups]"
     policy.default: role:readonly
     policy.csv: |
       g, sre-team, role:admin

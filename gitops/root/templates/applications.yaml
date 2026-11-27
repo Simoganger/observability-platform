@@ -36,6 +36,18 @@ spec:
     - repoURL: {{ $g.repoURL }}
       targetRevision: {{ $g.targetRevision }}
       ref: values
+  {{- else if $c.chartPath }}
+  # Local Helm chart in this repo (value files are relative to the chart).
+  source:
+    repoURL: {{ $g.repoURL }}
+    targetRevision: {{ $g.targetRevision }}
+    path: {{ $c.chartPath }}
+    helm:
+      releaseName: {{ $c.releaseName | default $name }}
+      ignoreMissingValueFiles: true
+      valueFiles:
+        - values.yaml
+        - values-{{ $g.env }}.yaml
   {{- else }}
   source:
     repoURL: {{ $g.repoURL }}

@@ -47,3 +47,9 @@ variable "grafana_admin_password" {
   default   = ""
   sensitive = true
 }
+
+variable "domain" {
+  description = "Base domain of the platform UIs (https://grafana.<domain>). Must match gitops/platform/*/values-kind.yaml."
+  type        = string
+  default     = "127.0.0.1.nip.io"
+}

@@ -21,7 +21,8 @@ We need full-stack Kubernetes observability (metrics, logs, traces, events) that
 | Incident mgmt | **Alertmanager → PagerDuty + Slack** | Opsgenie (end-of-sale), Grafana IRM, incident.io | PagerDuty is the market leader; receivers are swappable config |
 | Cost | **OpenCost** | Kubecost | CNCF incubating, open spec, Prometheus-native |
 | Commercial | **Datadog** (optional) | New Relic, Dynatrace | Most requested in industry; enabled as a second destination, not a dependency |
-| Ingress | none by default | ingress-nginx (retired 2026), Envoy Gateway, Traefik | Brownfield clusters bring their own; use Gateway API (Envoy Gateway is CNCF) for new ones |
+| Ingress | **Envoy Gateway** (Gateway API) + **cert-manager** | ingress-nginx (retired 2026), Traefik, cloud load-balancer controllers | Gateway API is the successor of Ingress; Envoy is CNCF graduated; one Gateway + per-host listeners; cert-manager issues certificates from the listeners. Off for `existing` clusters, which bring their own |
+| Identity / SSO | **Keycloak** (OIDC) | Dex, Authentik, Okta / Entra ID directly | CNCF incubating, full IdP (federates LDAP/AD and upstream IdPs), groups claim drives Grafana and Argo CD roles. Trade-off: one more stateful service (PostgreSQL in the cloud). Swappable for any OIDC IdP by changing URLs only |
 
 ## Consequences
 * Changing a backend is a config change in `gitops/platform/otel-gateway`, with no application change.

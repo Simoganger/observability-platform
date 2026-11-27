@@ -80,6 +80,8 @@ flowchart LR
 | Alerting / incidents | **Alertmanager** → **PagerDuty** + **Slack** | Graduated | Routing, grouping, inhibition, runbook links |
 | FinOps | **OpenCost** | Incubating | Cost per namespace / idle spend for stakeholders |
 | Commercial (optional) | **Datadog** (Operator + OTel exporter) | — | Toggle on to dual-ship; no lock-in |
+| Ingress & TLS | **Envoy Gateway** (Gateway API) + **cert-manager** | Graduated (cert-manager), Envoy | One HTTPS entry point; Let's Encrypt in the cloud, lab CA on kind |
+| Single sign-on | **Keycloak** (OIDC) → Grafana + Argo CD | Incubating | Groups → roles: `sre-team` = admin, `stakeholders` = viewer |
 
 Why these choices and what the alternatives were (Jaeger, Fluent Bit, Thanos/Mimir, Elastic, Opsgenie…): [docs/adr/0001-technology-choices.md](docs/adr/0001-technology-choices.md).
 
@@ -98,9 +100,12 @@ make up
 
 # 3. watch Argo CD roll everything out in waves, then open the UIs
 make status
-make ui            # Grafana :3000 · Argo CD :8080 · Prometheus :9090 · Alertmanager :9093 · OpenCost :9091
-make grafana-password
+make sso-users     # SSO logins: alice (sre-team → admin) · bob (stakeholders → viewer)
+make lab-ca        # optional: trust the lab CA to silence browser warnings
+make ui            # port-forward Prometheus :9090 · Alertmanager :9093 · OpenCost :9091
 ```
+
+Open **https://grafana.127.0.0.1.nip.io** and **https://argocd.127.0.0.1.nip.io** and sign in with Keycloak. The local `admin` accounts (`make grafana-password`, `make argocd-password`) remain as break-glass access. Details: [docs/sso.md](docs/sso.md).
 
 Grafana → **Dashboards → Executive / SRE**. Then run a game day:
 
@@ -116,7 +121,7 @@ make chaos-reset
 make up ENV=eks        # VPC + EKS + S3 + IRSA + bootstrap   (terraform/envs/eks)
 make up ENV=gke        # VPC + GKE + GCS + Workload Identity (terraform/envs/gke)
 ```
-Then copy the bucket and role outputs into `gitops/platform/{loki,tempo}/values-<env>.yaml`. Cloud environments switch to HA settings: Loki Distributed, tempo-distributed, 2× Prometheus, 3× Alertmanager, and an autoscaled OTel gateway.
+Then copy the bucket and role outputs into `gitops/platform/{loki,tempo}/values-<env>.yaml`, set your domain, DNS and a PostgreSQL database for Keycloak ([docs/sso.md](docs/sso.md#eks--gke)). Cloud environments switch to HA settings: Loki Distributed, tempo-distributed, 2× Prometheus, 3× Alertmanager, and an autoscaled OTel gateway.
 
 ### Existing cluster (brownfield)
 
@@ -151,7 +156,7 @@ gitops/
   addons/datadog/             optional DatadogAgent CR
 apps/demo-shop/               source of the sample 3-tier app (FastAPI, zero OTel code)
 .github/workflows/            CI: app build/push/promote, GitOps validation, Terraform, e2e on kind
-docs/                         architecture, onboarding, incident management, runbooks, ADRs
+docs/                         architecture, onboarding, SSO, incident management, runbooks, ADRs
 scripts/                      render, dashboards-as-code, secrets, port-forward, chaos
 ```
 
@@ -167,6 +172,7 @@ scripts/                      render, dashboards-as-code, secrets, port-forward,
 - [x] Meta-monitoring: alerts + dashboard for the telemetry pipeline itself
 - [x] Every alert carries `runbook_url` + `dashboard_url`; critical alerts page, warnings go to Slack
 - [x] CI renders every environment and validates it with the real binaries (kubeconform, otelcol, promtool, amtool)
-- [ ] Your SSO for Grafana/Argo CD (OIDC) — see the comments in the values files
-- [ ] Your ingress / Gateway API + TLS — all services are ClusterIP by default
+- [x] SSO for Grafana and Argo CD through Keycloak (OIDC), group → role mapping, break-glass local admins ([docs/sso.md](docs/sso.md))
+- [x] Gateway API ingress (Envoy Gateway) with TLS from cert-manager; unauthenticated UIs (Prometheus, Alertmanager) stay internal
+- [ ] Your domain + DNS, and PostgreSQL for Keycloak in the cloud ([docs/sso.md](docs/sso.md#eks--gke))
 - [ ] Long-term metrics (Thanos / Mimir / managed Prometheus remote-write — see `values-eks.yaml`)

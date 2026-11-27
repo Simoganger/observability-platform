@@ -7,6 +7,7 @@ module "bootstrap" {
   gitops_repo_token     = var.gitops_repo_token
   pagerduty_routing_key = var.pagerduty_routing_key
   slack_webhook_url     = var.slack_webhook_url
+  keycloak_database     = var.keycloak_database
 
   depends_on = [google_container_node_pool.default]
 }

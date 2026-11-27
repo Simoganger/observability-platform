@@ -50,11 +50,25 @@ def main() -> int:
             if "sources" in spec:
                 chart_src = next(s for s in spec["sources"] if "chart" in s)
                 helm = chart_src.get("helm", {})
-                cmd = ["helm", "template", helm.get("releaseName", name), chart_src["chart"],
-                       "--repo", chart_src["repoURL"], "--version", str(chart_src["targetRevision"]),
+                repo, chart = chart_src["repoURL"], chart_src["chart"]
+                # Argo CD writes OCI registries without a scheme (docker.io/org); helm needs oci://
+                chart_ref = ([chart, "--repo", repo] if "://" in repo
+                             else [f"oci://{repo.rstrip('/')}/{chart}"])
+                cmd = ["helm", "template", helm.get("releaseName", name), *chart_ref,
+                       "--version", str(chart_src["targetRevision"]),
                        "--namespace", ns, "--kube-version", "1.34.0", "--include-crds"]
                 for vf in helm.get("valueFiles", []):
                     path = ROOT / vf.replace("$values/", "")
+                    if path.exists():
+                        cmd += ["-f", str(path)]
+                rendered = run(cmd)
+            elif "helm" in spec["source"]:
+                # Local chart: value files are relative to the chart directory.
+                src = spec["source"]
+                cmd = ["helm", "template", src["helm"].get("releaseName", name), src["path"],
+                       "--namespace", ns, "--kube-version", "1.34.0"]
+                for vf in src["helm"].get("valueFiles", []):
+                    path = ROOT / src["path"] / vf
                     if path.exists():
                         cmd += ["-f", str(path)]
                 rendered = run(cmd)

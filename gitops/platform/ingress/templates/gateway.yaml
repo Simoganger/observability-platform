@@ -1,0 +1,88 @@
+{{- $v := .Values -}}
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: {{ $v.gateway.name }}
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyDeployment:
+        replicas: {{ $v.envoy.replicas }}
+        container:
+          resources:
+            {{- toYaml $v.envoy.resources | nindent 12 }}
+      envoyService:
+        name: {{ $v.envoy.serviceName }}
+        type: {{ $v.envoy.serviceType }}
+        {{- with $v.envoy.externalTrafficPolicy }}
+        externalTrafficPolicy: {{ . }}
+        {{- end }}
+        {{- with $v.envoy.serviceAnnotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with $v.envoy.nodePorts }}
+        # Fixed node ports so kind can map host :80/:443 onto them.
+        patch:
+          type: StrategicMerge
+          value:
+            spec:
+              ports:
+                {{- with .http }}
+                - { port: 80, nodePort: {{ . }} }
+                {{- end }}
+                {{- with .https }}
+                - { port: 443, nodePort: {{ . }} }
+                {{- end }}
+        {{- end }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: {{ $v.gateway.className }}
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  parametersRef:
+    group: gateway.envoyproxy.io
+    kind: EnvoyProxy
+    name: {{ $v.gateway.name }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ $v.gateway.name }}
+  annotations:
+    # cert-manager's gateway-shim creates one Certificate per HTTPS listener.
+    cert-manager.io/cluster-issuer: {{ $v.issuer.name }}
+spec:
+  gatewayClassName: {{ $v.gateway.className }}
+  listeners:
+    # Plain HTTP only redirects to HTTPS (and serves ACME HTTP-01 challenges).
+    - name: http
+      protocol: HTTP
+      port: 80
+      hostname: {{ printf "*.%s" $v.domain | quote }}
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- range $name, $r := $v.routes }}
+    {{- if $r.enabled }}
+    - name: {{ $name }}
+      protocol: HTTPS
+      port: 443
+      hostname: {{ include "ingress.host" (dict "root" $ "name" $name) | quote }}
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: {{ $name }}-tls
+      # Only the app's own namespace may attach routes for its hostname.
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $r.namespace }}
+    {{- end }}
+    {{- end }}

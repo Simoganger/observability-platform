@@ -2,3 +2,5 @@ gitops_repo_url = "https://github.com/<your-github-user>/observability-lab.git"
 # gitops_repo_token   = "github_pat_..."   # only for a private repo
 # pagerduty_routing_key = "..."            # PagerDuty → Service → Integrations → Events API v2
 # slack_webhook_url     = "https://hooks.slack.com/services/..."
+# Keycloak (SSO) in production mode needs PostgreSQL — see docs/sso.md
+# keycloak_database = { host = "keycloak.xxxx.rds.amazonaws.com", database = "keycloak", username = "keycloak", password = "..." }

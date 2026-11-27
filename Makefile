@@ -26,8 +26,8 @@ demo-image: ## Build the demo app and load it into kind (no registry needed)
 	kind load docker-image $(DEMO_IMAGE) --name observability
 
 # ---------------------------------------------------------------------- access --
-.PHONY: ui grafana-password argocd-password status
-ui: ## Port-forward Grafana, Argo CD, Prometheus, Alertmanager, OpenCost, demo
+.PHONY: ui grafana-password argocd-password keycloak-password sso-users sso-test lab-ca status
+ui: ## Port-forward Prometheus, Alertmanager, OpenCost, demo (+ Grafana/Argo CD fallback)
 	@scripts/port-forward.sh
 
 grafana-password: ## Print the Grafana admin password
@@ -35,6 +35,21 @@ grafana-password: ## Print the Grafana admin password
 
 argocd-password: ## Print the initial Argo CD admin password
 	@kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo
+
+keycloak-password: ## Print the Keycloak admin console password (user: admin)
+	@kubectl -n keycloak get secret keycloak-secrets -o jsonpath='{.data.KC_BOOTSTRAP_ADMIN_PASSWORD}' | base64 -d; echo
+
+sso-users: ## Print the demo SSO users (kind)
+	@echo "alice → sre-team     (Grafana Admin,  Argo CD admin)"
+	@echo "bob   → stakeholders (Grafana Viewer, Argo CD read-only)"
+	@printf "password: "; kubectl -n keycloak get secret keycloak-secrets -o jsonpath='{.data.DEMO_USER_PASSWORD}' | base64 -d; echo
+
+sso-test: ## Log in to Grafana + Argo CD through Keycloak and check roles
+	@scripts/sso-smoke-test.sh
+
+lab-ca: ## Export the kind lab CA to lab-ca.crt (trust it to silence browser warnings)
+	@kubectl -n cert-manager get secret platform-issuer-ca -o jsonpath='{.data.ca\.crt}' | base64 -d > lab-ca.crt
+	@echo "Wrote lab-ca.crt. macOS: sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain lab-ca.crt"
 
 status: ## Argo CD application sync/health
 	@kubectl -n argocd get applications -o custom-columns=APP:.metadata.name,SYNC:.status.sync.status,HEALTH:.status.health.status,WAVE:.metadata.annotations.argocd\.argoproj\.io/sync-wave

@@ -1,0 +1,29 @@
+# cert-manager — issues the TLS certificates of the shared Gateway.
+# The gateway-shim watches Gateways annotated with cert-manager.io/cluster-issuer
+# and creates one Certificate per HTTPS listener (see gitops/platform/ingress).
+crds:
+  enabled: true
+  keep: true            # never delete issued certificates with the chart
+
+config:
+  apiVersion: controller.config.cert-manager.io/v1alpha1
+  kind: ControllerConfiguration
+  enableGatewayAPI: true
+
+# ServiceMonitor CRDs arrive later (kube-prometheus-stack, wave 0).
+prometheus:
+  enabled: true
+  servicemonitor:
+    enabled: false
+
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { memory: 256Mi }
+webhook:
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { memory: 128Mi }
+cainjector:
+  resources:
+    requests: { cpu: 10m, memory: 64Mi }
+    limits: { memory: 256Mi }

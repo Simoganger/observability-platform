@@ -1,0 +1,7 @@
+apiVersion: v2
+name: platform-ingress
+description: >-
+  Shared Gateway API entry point for the platform UIs: one Envoy Gateway, TLS
+  certificates from cert-manager and one HTTPRoute per exposed service.
+type: application
+version: 1.0.0

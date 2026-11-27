@@ -33,6 +33,8 @@ PAGERDUTY_ROUTING_KEY=... SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
   scripts/create-secrets.sh
 ```
 
+For SSO against your own identity provider, also pass `GRAFANA_OIDC_CLIENT_SECRET` / `ARGOCD_OIDC_CLIENT_SECRET` and follow [sso.md](sso.md#using-another-keycloak-or-idp). Ingress, cert-manager and Keycloak are disabled for this environment by default; enable them in `gitops/root/values-existing.yaml` if your cluster lacks them.
+
 In production, manage `alertmanager-incident-secrets` and `grafana-admin` with External Secrets Operator, Vault or your cloud secret manager. The names and keys are the contract.
 
 ## 4. Deploy

@@ -1,0 +1,49 @@
+# Every exposed UI is https://<name>.<domain>. Override `domain` per environment.
+domain: example.com
+
+gateway:
+  name: platform
+  className: envoy
+
+# Data-plane Service in front of Envoy. Its fixed name lets in-cluster clients
+# resolve the public hostnames to it (kind: CoreDNS rewrite in terraform/envs/kind).
+envoy:
+  serviceName: platform-gateway
+  serviceType: LoadBalancer
+  serviceAnnotations: {}
+  # Envoy Gateway defaults to Local (keeps client IPs; only nodes running Envoy answer).
+  externalTrafficPolicy: ""
+  nodePorts: {}            # kind: { http: 30080, https: 30443 }
+  replicas: 2
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { memory: 512Mi }
+
+# ClusterIssuer that signs every listener certificate.
+#   acme       → Let's Encrypt, HTTP-01 through the Gateway (needs public DNS)
+#   selfsigned → a private lab CA (kind; browsers will warn unless you trust it)
+issuer:
+  name: platform-issuer
+  type: acme
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ""              # optional; Let's Encrypt no longer sends expiry mail
+
+# UIs published on the Gateway. Prometheus/Alertmanager have no authentication
+# of their own and are deliberately NOT exposed: query them through Grafana.
+routes:
+  grafana:
+    enabled: true
+    namespace: observability
+    service: grafana
+    port: 80
+  argocd:
+    enabled: true
+    namespace: argocd
+    service: argocd-server
+    port: 80
+  keycloak:
+    enabled: true
+    namespace: keycloak
+    service: keycloak-http
+    port: 80

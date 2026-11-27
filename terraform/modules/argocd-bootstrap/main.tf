@@ -53,6 +53,78 @@ resource "kubernetes_secret_v1" "alertmanager_incident" {
   }
 }
 
+# ------------------------------------------------------- SSO (Keycloak) -------
+# Client secrets are generated here and handed to BOTH sides: Keycloak (realm
+# import placeholders) and the relying parties (Grafana, Argo CD). See docs/sso.md.
+resource "kubernetes_namespace_v1" "keycloak" {
+  count = var.sso_enabled ? 1 : 0
+  metadata {
+    name = "keycloak"
+  }
+}
+
+resource "random_password" "sso" {
+  for_each = var.sso_enabled ? toset(["keycloak_admin", "grafana_client", "argocd_client", "demo_user"]) : toset([])
+  length   = 32
+  special  = false
+}
+
+resource "kubernetes_secret_v1" "keycloak" {
+  count = var.sso_enabled ? 1 : 0
+  metadata {
+    name      = "keycloak-secrets"
+    namespace = kubernetes_namespace_v1.keycloak[0].metadata[0].name
+  }
+  data = {
+    KC_BOOTSTRAP_ADMIN_USERNAME = "admin"
+    KC_BOOTSTRAP_ADMIN_PASSWORD = random_password.sso["keycloak_admin"].result
+    GRAFANA_CLIENT_SECRET       = random_password.sso["grafana_client"].result
+    ARGOCD_CLIENT_SECRET        = random_password.sso["argocd_client"].result
+    DEMO_USER_PASSWORD          = random_password.sso["demo_user"].result
+  }
+}
+
+# Production mode (eks / gke): PostgreSQL connection for Keycloak.
+resource "kubernetes_secret_v1" "keycloak_db" {
+  count = var.sso_enabled && nonsensitive(var.keycloak_database != null) ? 1 : 0
+  metadata {
+    name      = "keycloak-db"
+    namespace = kubernetes_namespace_v1.keycloak[0].metadata[0].name
+  }
+  data = {
+    KC_DB_URL_HOST     = var.keycloak_database.host
+    KC_DB_URL_DATABASE = var.keycloak_database.database
+    KC_DB_USERNAME     = var.keycloak_database.username
+    KC_DB_PASSWORD     = var.keycloak_database.password
+  }
+}
+
+resource "kubernetes_secret_v1" "grafana_oidc" {
+  count = var.sso_enabled ? 1 : 0
+  metadata {
+    name      = "grafana-oidc"
+    namespace = kubernetes_namespace_v1.observability.metadata[0].name
+  }
+  data = {
+    client-secret = random_password.sso["grafana_client"].result
+  }
+}
+
+# Referenced from argocd-cm as $argocd-oidc:client-secret; Argo CD only reads
+# secrets labelled part-of=argocd.
+resource "kubernetes_secret_v1" "argocd_oidc" {
+  count = var.sso_enabled ? 1 : 0
+  metadata {
+    name      = "argocd-oidc"
+    namespace = "argocd"
+    labels    = { "app.kubernetes.io/part-of" = "argocd" }
+  }
+  data = {
+    client-secret = random_password.sso["argocd_client"].result
+  }
+  depends_on = [kubernetes_namespace_v1.argocd]
+}
+
 resource "kubernetes_secret_v1" "repo" {
   count = var.gitops_repo_token != "" ? 1 : 0
   metadata {
@@ -138,5 +210,8 @@ resource "helm_release" "root_app" {
     kubernetes_secret_v1.repo,
     kubernetes_secret_v1.grafana_admin,
     kubernetes_secret_v1.alertmanager_incident,
+    kubernetes_secret_v1.keycloak,
+    kubernetes_secret_v1.grafana_oidc,
+    kubernetes_secret_v1.argocd_oidc,
   ]
 }

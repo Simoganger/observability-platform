@@ -1,0 +1,3 @@
+# GKE: an external passthrough Network Load Balancer in front of Envoy. Point a
+# wildcard DNS record (*.example.com) at its IP, then certificates issue automatically.
+domain: example.com

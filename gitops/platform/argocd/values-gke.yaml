@@ -11,3 +11,16 @@ repoServer:
   pdb: { enabled: true, minAvailable: 1 }
 applicationSet:
   replicas: 2
+
+# SSO through Keycloak (docs/sso.md). Replace example.com with your domain.
+global:
+  domain: argocd.example.com           # → configs.cm.url
+configs:
+  cm:
+    oidc.config: |
+      name: Keycloak
+      issuer: https://keycloak.example.com/realms/observability
+      clientID: argocd
+      clientSecret: $argocd-oidc:client-secret
+      requestedScopes: ["openid", "profile", "email"]
+      logoutURL: https://keycloak.example.com/realms/observability/protocol/openid-connect/logout?id_token_hint={{token}}&post_logout_redirect_uri={{logoutRedirectURL}}
