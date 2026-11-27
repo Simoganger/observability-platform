@@ -85,6 +85,8 @@ flowchart LR
 
 Why these choices and what the alternatives were (Jaeger, Fluent Bit, Thanos/Mimir, Elastic, Opsgenie…): [docs/adr/0001-technology-choices.md](docs/adr/0001-technology-choices.md).
 
+The full architecture reference (diagrams, data flows, failure modes, security) is in **[architecture/](architecture/README.md)**.
+
 ## Quick start (local, ~10 min)
 
 **Prerequisites:** Docker with **≥ 8 GB free for the cluster** (the full stack uses ~5–6 GB), `kind`, `kubectl`, `helm`, `terraform ≥ 1.6`, and a GitHub fork of this repo. Argo CD pulls from Git, so the repo must be reachable.
@@ -156,7 +158,8 @@ gitops/
   addons/datadog/             optional DatadogAgent CR
 apps/demo-shop/               source of the sample 3-tier app (FastAPI, zero OTel code)
 .github/workflows/            CI: app build/push/promote, GitOps validation, Terraform, e2e on kind
-docs/                         architecture, onboarding, SSO, incident management, runbooks, ADRs
+docs/                         guides: onboarding, SSO, incident management, runbooks, ADRs
+architecture/                 architecture reference: diagrams, data flows, operations, security
 scripts/                      render, dashboards-as-code, secrets, port-forward, chaos
 ```
 
